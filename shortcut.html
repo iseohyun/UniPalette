@@ -1,0 +1,170 @@
+<div class="modal-header">
+  <h2>단축키 설정</h2>
+  <button class="modal-close-btn" onclick="closeModal()">&times;</button>
+</div>
+<div class="modal-body">
+  <p class="modal-desc">아래의 버튼을 클릭한 후, 원하는 키보드 키를 입력하여 단축키를 변경하세요. (텍스트 입력 폼 포커스 중에는 단축키가 작동하지 않습니다.)</p>
+  
+  <table class="shortcut-table">
+    <thead>
+      <tr>
+        <th>동작</th>
+        <th>기본 단축키 (Primary)</th>
+        <th>대체 단축키 (Secondary)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="action-label">추출 개수 증가</td>
+        <td>
+          <button class="key-slot-btn" id="key-increaseCount-primary" data-action="increaseCount" data-slot="primary">
+            +
+          </button>
+        </td>
+        <td>
+          <button class="key-slot-btn" id="key-increaseCount-secondary" data-action="increaseCount" data-slot="secondary">
+            ArrowUp
+          </button>
+        </td>
+      </tr>
+      <tr>
+        <td class="action-label">추출 개수 감소</td>
+        <td>
+          <button class="key-slot-btn" id="key-decreaseCount-primary" data-action="decreaseCount" data-slot="primary">
+            -
+          </button>
+        </td>
+        <td>
+          <button class="key-slot-btn" id="key-decreaseCount-secondary" data-action="decreaseCount" data-slot="secondary">
+            ArrowDown
+          </button>
+        </td>
+      </tr>
+      <tr>
+        <td class="action-label">명암 단계 증가</td>
+        <td>
+          <button class="key-slot-btn" id="key-increaseLightSteps-primary" data-action="increaseLightSteps" data-slot="primary">
+            *
+          </button>
+        </td>
+        <td>
+          <button class="key-slot-btn" id="key-increaseLightSteps-secondary" data-action="increaseLightSteps" data-slot="secondary">
+            PageUp
+          </button>
+        </td>
+      </tr>
+      <tr>
+        <td class="action-label">명암 단계 감소</td>
+        <td>
+          <button class="key-slot-btn" id="key-decreaseLightSteps-primary" data-action="decreaseLightSteps" data-slot="primary">
+            /
+          </button>
+        </td>
+        <td>
+          <button class="key-slot-btn" id="key-decreaseLightSteps-secondary" data-action="decreaseLightSteps" data-slot="secondary">
+            PageDown
+          </button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="shortcut-info-box" style="margin-top: 15px; padding: 10px; background-color: rgba(0,75,255,0.03); border: 1px solid rgba(0,75,255,0.1); border-radius: 6px; font-size: 11px;">
+    <strong style="color: #0056b3;">💡 고정 단축키 안내</strong>
+    <p style="margin: 4px 0 0 0; color: #6c757d; line-height: 1.4;">
+      - <strong>[a], [b], [c], [d], [e], [f]</strong>: 색상 추출 방법 스위칭<br>
+      - <strong>[x], [y], [z]</strong>: 각각 PPT 기본색 / 무지개색 / 구글색 고정 프리셋 스위칭 (고정 단축키는 변경 불가)
+    </p>
+  </div>
+  
+  <div class="modal-footer" style="margin-top: 15px;">
+    <button class="modal-action-btn save" id="btnSaveShortcuts">저장</button>
+    <button class="modal-action-btn reset" id="btnResetShortcuts">초기화</button>
+  </div>
+</div>
+
+<style>
+  .modal-desc {
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 15px;
+    line-height: 1.4;
+  }
+  .shortcut-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 15px;
+    font-size: 13px;
+  }
+  .shortcut-table th, .shortcut-table td {
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: center;
+  }
+  .shortcut-table th {
+    font-weight: 600;
+    color: #495057;
+    background-color: rgba(0,0,0,0.02);
+  }
+  .action-label {
+    text-align: left !important;
+    font-weight: 500;
+  }
+  .key-slot-btn {
+    width: 100%;
+    min-width: 100px;
+    padding: 6px 12px;
+    background-color: var(--panel-bg);
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .key-slot-btn:hover {
+    background-color: var(--border-color);
+    border-color: #007bff;
+  }
+  .key-slot-btn.recording {
+    background-color: #fff3cd;
+    border-color: #ffc107;
+    color: #856404;
+    animation: key-pulse 1s infinite alternate;
+  }
+  @keyframes key-pulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(0.98); }
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
+  }
+  .modal-action-btn {
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+  }
+  .modal-action-btn.save {
+    background-color: #007bff;
+    color: #fff;
+  }
+  .modal-action-btn.save:hover {
+    background-color: #0056b3;
+  }
+  .modal-action-btn.reset {
+    background-color: #6c757d;
+    color: #fff;
+  }
+  .modal-action-btn.reset:hover {
+    background-color: #5a6268;
+  }
+</style>
