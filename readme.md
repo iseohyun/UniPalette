@@ -1,11 +1,7 @@
-# UniPalette (v2026071005)
-[구현된 사이트](https://iseohyun.github.io/UniPalette/)
-
 UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레트 추출 도구**입니다. HSL 색 공간뿐만 아니라 인간의 시각 인지 모델에 근거한 하이엔드 Oklab 및 CIEDE2000 색차 모델을 이용해 균형 잡힌 색상 팔레트를 쉽게 추출하고 대비 감도를 실시간 검토할 수 있습니다.
+<a href="https://iseohyun.github.io/UniPalette/" target="_blank">사이트 방문</a>
 
 ## 미리보기 (Preview)
-<!-- <video src="output.mp4" width="100%" controls autoplay loop muted></video> -->
-<video src="https://github.com/iseohyun/UniPalette/raw/main/output.mp4" width="800" height="600" controls autoplay muted loop></video>
 <video src="https://github.com/user-attachments/assets/aabbc453-e4a8-4eb2-ad90-3b726077873d" width="800" height="600" controls autoplay muted loop></video>
 
 
