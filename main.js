@@ -1,44 +1,74 @@
-// 전역 상태 변수
-const VERSION = 'v2026071005';
+/**
+ * @fileoverview UniPalette 메인 UI 컨트롤러 및 상태/이벤트 관리 모듈
+ * - 2D HSV 컬러 피커, 더블 레인지 슬라이더, H-L 컬러 맵 캔버스 및 마커 드래그 제어
+ * - 팔레트 카드 및 인접 대비 스트립 렌더링, 클립보드 내보내기, 모달 로더(file:// 폴백 지원)
+ */
+
+// 버전 정보는 version.js(SEMVER, CACHE_BUST_TAG, DISPLAY_VERSION)를 단일 진실 공급원(SSOT)으로 참조
+
+// 고정 프리셋 규격 단일 진실 공급원(SSOT)
+const PRESET_CONFIG = {
+    ppt:     { count: 7,  defaultSteps: 1, fixedCount: true, fixedSteps: true },
+    rainbow: { count: 10, defaultSteps: 1, fixedCount: true, fixedSteps: true },
+    google:  { count: 8,  defaultSteps: 3, fixedCount: true, fixedSteps: false, maxSteps: 3 }
+};
+
 let currentExtractedColors = [];
 let isDragging = false;
+let isColorMapRendered = false;
+let toastTimeoutId = null;
+let lastUserLightSteps = 1;
+let previousMethod = 'linear';
 
 document.addEventListener('DOMContentLoaded', () => {
+    const versionEl = document.getElementById('appVersion');
+    if (versionEl && typeof DISPLAY_VERSION !== 'undefined') {
+        versionEl.innerText = DISPLAY_VERSION;
+    }
+
     const baseColor = document.getElementById('baseColor');
     const extractCount = document.getElementById('extractCount');
     const lightSteps = document.getElementById('lightSteps');
     const extractMethod = document.getElementById('extractMethod');
     const btnToggleDark = document.getElementById('btnToggleDark');
-    
-    // 1. 범용 색상 입력 컴포넌트(숨겨진 color picker) 연동 초기화
+
+    if (lightSteps) {
+        lastUserLightSteps = parseInt(lightSteps.value, 10) || 1;
+    }
+    if (extractMethod) {
+        previousMethod = extractMethod.value;
+    }
+
     initColorPicker();
-    
-    // 2. 커스텀 더블 슬라이더 초기화
     initDoubleSlider();
-    
-    // 3. 2차원 컬러 맵 기준 마커 드래그 앤 드롭 초기화
     initDragAndDrop();
-    
-    // 4. "코드로 추출" 버튼 복사 및 토스트 기능 초기화
     initExportButton();
-    
-    // 5. 단축키 및 설명서 헤더 버튼 모달 바인딩
     initHeaderModalButtons();
-    
-    // 다크모드 실시간 토글 (체크박스 대신 헤더 버튼식으로 갱신)
+
     if (btnToggleDark) {
         btnToggleDark.addEventListener('click', () => {
             const isDark = document.body.classList.toggle('preview-dark');
             btnToggleDark.innerText = isDark ? '라이트모드' : '다크모드';
         });
     }
-    
-    // 기타 변경 시 재생성
-    [extractCount, lightSteps].forEach(el => {
-        el.addEventListener('input', generatePalette);
-        el.addEventListener('change', generatePalette);
-    });
-    
+
+    if (extractCount) {
+        extractCount.addEventListener('input', generatePalette);
+        extractCount.addEventListener('change', generatePalette);
+    }
+
+    if (lightSteps) {
+        const onStepsChange = () => {
+            const method = extractMethod ? extractMethod.value : 'linear';
+            if (!PRESET_CONFIG[method]) {
+                lastUserLightSteps = Math.max(1, parseInt(lightSteps.value, 10) || 1);
+            }
+            generatePalette();
+        };
+        lightSteps.addEventListener('input', onStepsChange);
+        lightSteps.addEventListener('change', onStepsChange);
+    }
+
     if (extractMethod) {
         const onMethodChange = () => {
             handleMethodChange(extractMethod.value);
@@ -47,34 +77,38 @@ document.addEventListener('DOMContentLoaded', () => {
         extractMethod.addEventListener('input', onMethodChange);
         extractMethod.addEventListener('change', onMethodChange);
     }
-    
-    // 초기 실행 스타일 및 드로잉
-    updateBaseColorInputStyle(baseColor.value);
+
+    if (baseColor) {
+        updateBaseColorInputStyle(baseColor.value);
+    }
     generatePalette();
 });
 
-// 헤더 모달 버튼 이벤트 바인딩
+/**
+ * 헤더 모달(단축키, 설명서) 버튼 및 오버레이 닫기 이벤트를 바인딩합니다.
+ */
 function initHeaderModalButtons() {
     const btnShortcut = document.getElementById('btnShortcut');
     const btnHelp = document.getElementById('btnHelp');
     const modalOverlay = document.getElementById('commonModal');
-    
+    const modalContent = document.getElementById('modalContent');
+
     if (btnShortcut) {
         btnShortcut.addEventListener('click', () => {
-            openModal('shortcut.html', () => {
+            openModal('shortcut.html', 'tmpl-shortcut', () => {
                 if (typeof initShortcutSettingsUI === 'function') {
                     initShortcutSettingsUI();
                 }
             });
         });
     }
-    
+
     if (btnHelp) {
         btnHelp.addEventListener('click', () => {
-            openModal('help.html');
+            openModal('help.html', 'tmpl-help');
         });
     }
-    
+
     if (modalOverlay) {
         modalOverlay.addEventListener('click', (e) => {
             if (e.target === modalOverlay) {
@@ -82,31 +116,65 @@ function initHeaderModalButtons() {
             }
         });
     }
+
+    // 모달 내부 닫기 버튼 이벤트 위임 (인라인 onclick 의존성 완화)
+    if (modalContent) {
+        modalContent.addEventListener('click', (e) => {
+            if (e.target.closest('.modal-close-btn')) {
+                closeModal();
+            }
+        });
+    }
 }
 
-// 모달 오픈 유틸리티
-function openModal(url, callback) {
+/**
+ * 외부 HTML 조각을 로드하여 모달을 표시하며, file:// 환경 등 CORS 실패 시 내장 <template>으로 폴백합니다.
+ * @param {string} url - 로드할 HTML 파일 경로
+ * @param {string} fallbackTemplateId - CORS 실패 시 사용할 <template> 요소 ID
+ * @param {Function} [callback] - 마운트 완료 후 실행할 콜백
+ */
+function openModal(url, fallbackTemplateId, callback) {
     const modalContent = document.getElementById('modalContent');
     const modalOverlay = document.getElementById('commonModal');
     if (!modalContent || !modalOverlay) return;
-    
-    fetch(url)
+
+    const mountHtml = (html) => {
+        modalContent.innerHTML = html;
+        modalOverlay.classList.add('show');
+        if (callback) callback();
+    };
+
+    const tryFallbackTemplate = () => {
+        const tmpl = fallbackTemplateId ? document.getElementById(fallbackTemplateId) : null;
+        if (tmpl && tmpl.innerHTML.trim()) {
+            mountHtml(tmpl.innerHTML);
+            return true;
+        }
+        return false;
+    };
+
+    // file:// 프로토콜에서는 브라우저가 fetch를 차단하므로 즉시 내장 템플릿 우선 사용
+    if (window.location.protocol === 'file:' && tryFallbackTemplate()) {
+        return;
+    }
+
+    const bustQuery = (typeof CACHE_BUST_TAG !== 'undefined') ? `?v=${CACHE_BUST_TAG}` : '';
+    fetch(`${url}${bustQuery}`)
         .then(response => {
-            if (!response.ok) throw new Error('HTML load failed');
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return response.text();
         })
         .then(html => {
-            modalContent.innerHTML = html;
-            modalOverlay.classList.add('show');
-            if (callback) callback();
+            mountHtml(html);
         })
         .catch(err => {
-            console.error('모달 로드 에러: ', err);
-            showToast('콘텐츠를 불러오는 데 실패했습니다.');
+            if (!tryFallbackTemplate()) {
+                console.error('모달 로드 에러:', err);
+                showToast('콘텐츠를 불러오는 데 실패했습니다.');
+            }
         });
 }
 
-// 모달 클로즈 유틸리티 (글로벌 스코프 지정)
 window.closeModal = function() {
     const modalOverlay = document.getElementById('commonModal');
     if (modalOverlay) {
@@ -117,46 +185,23 @@ window.closeModal = function() {
     }
 };
 
-// HSL -> HSV 변환 (2D 컬러 피커 좌표 매핑용)
-function hslToHsv(h, s, l) {
-    s /= 100;
-    l /= 100;
-    let v = l + s * Math.min(l, 1 - l);
-    let s_hsv = v === 0 ? 0 : 2 * (1 - l / v);
-    return {
-        h: h,
-        s: s_hsv,
-        v: v
-    };
-}
-
-// HSV -> HSL 변환 (2D 컬러 피커 좌표 매핑용)
-function hsvToHsl(h, s, v) {
-    let l = v * (1 - s / 2);
-    let s_hsl = (l === 0 || l === 1) ? 0 : (v - l) / Math.min(l, 1 - l);
-    return {
-        h: h,
-        s: Math.round(s_hsl * 100),
-        l: Math.round(l * 100)
-    };
-}
-
-// 커스텀 2D HSV 캔버스 그리기
+/**
+ * 커스텀 2D HSV 컬러 피커의 채도-명도 캔버스를 렌더링합니다.
+ * @param {number} hue - 현재 선택된 Hue 각도 (0~360)
+ */
 function drawPickerCanvas(hue) {
     const canvas = document.getElementById('pickerCanvas');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
     const height = canvas.height;
-    
-    // 1. 가로축: 흰색 -> 순수 색상 그라데이션
+
     const gradH = ctx.createLinearGradient(0, 0, width, 0);
     gradH.addColorStop(0, '#ffffff');
     gradH.addColorStop(1, `hsl(${hue}, 100%, 50%)`);
     ctx.fillStyle = gradH;
     ctx.fillRect(0, 0, width, height);
-    
-    // 2. 세로축: 투명 -> 검은색 그라데이션
+
     const gradV = ctx.createLinearGradient(0, 0, 0, height);
     gradV.addColorStop(0, 'rgba(0,0,0,0)');
     gradV.addColorStop(1, '#000000');
@@ -164,65 +209,82 @@ function drawPickerCanvas(hue) {
     ctx.fillRect(0, 0, width, height);
 }
 
-// 커스텀 피커 캔버스 상의 마커 핀 위치 동기화
+/**
+ * 커스텀 피커 캔버스 상의 마커 핀 위치를 동기화합니다.
+ */
 function updatePickerMarker(s_hsv, v_hsv) {
     const marker = document.getElementById('pickerMarker');
     const canvas = document.getElementById('pickerCanvas');
     if (!marker || !canvas) return;
-    
+
     const x = Math.round(s_hsv * canvas.width);
     const y = Math.round((1 - v_hsv) * canvas.height);
-    
+
     marker.style.left = `${x}px`;
     marker.style.top = `${y}px`;
 }
 
-// 커스텀 2D HSV 컬러 피커 및 스포이드/OS피커 바인딩 (4차 수정)
+/**
+ * 기준 색상 입력창, 숨겨진 컬러 인풋, 피커 미리보기 칩 및 텍스트를 일괄 갱신합니다.
+ * @param {string} hex - '#RRGGBB' 형식 문자열
+ */
+function applyHexToBaseInputs(hex) {
+    const baseColorInput = document.getElementById('baseColor');
+    const hiddenPicker = document.getElementById('hiddenColorPicker');
+    const previewChip = document.getElementById('pickerPreview');
+    const hexText = document.getElementById('pickerHexText');
+
+    if (baseColorInput) {
+        baseColorInput.value = hex;
+        updateBaseColorInputStyle(hex);
+    }
+    if (hiddenPicker) {
+        hiddenPicker.value = hex;
+    }
+    if (previewChip) {
+        previewChip.style.backgroundColor = hex;
+    }
+    if (hexText) {
+        hexText.innerText = hex;
+    }
+}
+
+/**
+ * 커스텀 2D HSV 컬러 피커 및 스포이드/OS 네이티브 피커를 초기화합니다.
+ */
 function initColorPicker() {
     const baseColorInput = document.getElementById('baseColor');
     const customPicker = document.getElementById('customColorPicker');
     const hiddenPicker = document.getElementById('hiddenColorPicker');
-    
+
     if (!baseColorInput || !customPicker || !hiddenPicker) return;
-    
+
     const canvas = document.getElementById('pickerCanvas');
     const hueSlider = document.getElementById('pickerHue');
-    const previewChip = document.getElementById('pickerPreview');
-    const hexText = document.getElementById('pickerHexText');
     const btnDropper = document.getElementById('btnDropper');
     const btnNative = document.getElementById('btnNativePicker');
     const btnClose = document.getElementById('btnClosePicker');
-    
+
     let isMouseDown = false;
-    
-    // 2D 캔버스 좌표에서 색상 선택
+
     const selectColorFromCoord = (e) => {
-        if (!canvas) return;
+        if (!canvas || !hueSlider) return;
         const rect = canvas.getBoundingClientRect();
-        let x = e.clientX - rect.left;
-        let y = e.clientY - rect.top;
-        
-        x = Math.max(0, Math.min(canvas.width, x));
-        y = Math.max(0, Math.min(canvas.height, y));
-        
+        const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
+        const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+
         const s_hsv = x / canvas.width;
         const v_hsv = 1 - (y / canvas.height);
-        
-        const hue = parseInt(hueSlider.value);
+
+        const hue = parseInt(hueSlider.value, 10) || 0;
         const hsl = hsvToHsl(hue, s_hsv, v_hsv);
-        
         const hex = hslToHex(hsl.h, hsl.s, hsl.l);
-        baseColorInput.value = hex;
-        updateBaseColorInputStyle(hex);
-        hiddenPicker.value = hex;
-        
-        if (previewChip) previewChip.style.backgroundColor = hex;
-        if (hexText) hexText.innerText = hex;
-        
+
+        applyHexToBaseInputs(hex);
         updatePickerMarker(s_hsv, v_hsv);
         generatePalette();
     };
-    
+
     if (canvas) {
         canvas.addEventListener('mousedown', (e) => {
             isMouseDown = true;
@@ -237,52 +299,42 @@ function initColorPicker() {
             isMouseDown = false;
         });
     }
-    
-    // Hue 슬라이더 조작 시 캔버스 다시 그리기 및 색상 동기화
+
     if (hueSlider) {
         const onHueChange = () => {
-            const hue = parseInt(hueSlider.value);
+            const hue = parseInt(hueSlider.value, 10) || 0;
             drawPickerCanvas(hue);
-            
-            // 현재 마커 좌표의 HSV 색상 구하기
+
             const marker = document.getElementById('pickerMarker');
             if (marker && canvas) {
                 const x = parseFloat(marker.style.left) || 0;
                 const y = parseFloat(marker.style.top) || 0;
                 const s_hsv = x / canvas.width;
                 const v_hsv = 1 - (y / canvas.height);
-                
+
                 const hsl = hsvToHsl(hue, s_hsv, v_hsv);
                 const hex = hslToHex(hsl.h, hsl.s, hsl.l);
-                baseColorInput.value = hex;
-                updateBaseColorInputStyle(hex);
-                hiddenPicker.value = hex;
-                
-                if (previewChip) previewChip.style.backgroundColor = hex;
-                if (hexText) hexText.innerText = hex;
+                applyHexToBaseInputs(hex);
                 generatePalette();
             }
         };
         hueSlider.addEventListener('input', onHueChange);
         hueSlider.addEventListener('change', onHueChange);
     }
-    
-    // 스포이드(EyeDropper) API 지원 확인 및 바인딩
+
     if ('EyeDropper' in window && btnDropper) {
         btnDropper.style.display = 'flex';
         btnDropper.addEventListener('click', (e) => {
             e.stopPropagation();
             const eyeDropper = new EyeDropper();
             eyeDropper.open().then(result => {
-                const hex = result.sRGBHex.toUpperCase();
-                syncPickerWithHex(hex);
-            }).catch(err => {
-                console.log('스포이드 취소/실패:', err);
+                syncPickerWithHex(result.sRGBHex.toUpperCase());
+            }).catch(() => {
+                // 사용자가 스포이드를 취소한 경우 조용히 무시
             });
         });
     }
-    
-    // OS 네이티브 피커 연동
+
     if (btnNative) {
         btnNative.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -290,41 +342,34 @@ function initColorPicker() {
             hiddenPicker.click();
         });
     }
-    
-    // OS 네이티브 피커 변경 감지 시 동기화
+
     const onNativePickerChange = (e) => {
-        const hex = e.target.value.toUpperCase();
-        syncPickerWithHex(hex);
+        syncPickerWithHex(e.target.value.toUpperCase());
     };
     hiddenPicker.addEventListener('input', onNativePickerChange);
     hiddenPicker.addEventListener('change', onNativePickerChange);
-    
-    // 닫기 버튼 바인딩
+
     if (btnClose) {
         btnClose.addEventListener('click', (e) => {
             e.stopPropagation();
             customPicker.style.display = 'none';
         });
     }
-    
-    // 기준색상 인풋 클릭 시 팝업 토글
+
     baseColorInput.addEventListener('click', (e) => {
         e.stopPropagation();
         if (customPicker.style.display === 'none') {
-            const currentHex = baseColorInput.value;
-            syncPickerWithHex(currentHex, false); // 파레트 재생성 생략
+            syncPickerWithHex(baseColorInput.value, false);
             customPicker.style.display = 'block';
         } else {
             customPicker.style.display = 'none';
         }
     });
-    
-    // 피커 영역 클릭 시 닫히지 않도록 방지
+
     customPicker.addEventListener('click', (e) => {
         e.stopPropagation();
     });
-    
-    // 바깥 영역 클릭 시 피커 닫기
+
     document.addEventListener('click', (e) => {
         if (customPicker.style.display === 'block' && e.target !== baseColorInput && !customPicker.contains(e.target)) {
             customPicker.style.display = 'none';
@@ -332,217 +377,233 @@ function initColorPicker() {
     });
 }
 
-// HEX 값에 기초해 커스텀 2D 피커 UI를 정밀 동기화
+/**
+ * HEX 값에 기초해 커스텀 2D 피커 UI를 동기화합니다.
+ * @param {string} hex - '#RRGGBB' 형식 문자열
+ * @param {boolean} [triggerGenerate=true] - 팔레트 재생성 여부
+ */
 function syncPickerWithHex(hex, triggerGenerate = true) {
-    const baseColorInput = document.getElementById('baseColor');
-    const hiddenPicker = document.getElementById('hiddenColorPicker');
     const hueSlider = document.getElementById('pickerHue');
-    const previewChip = document.getElementById('pickerPreview');
-    const hexText = document.getElementById('pickerHexText');
-    
-    if (!baseColorInput || !hiddenPicker) return;
-    
-    baseColorInput.value = hex;
-    updateBaseColorInputStyle(hex);
-    hiddenPicker.value = hex;
-    
-    if (previewChip) previewChip.style.backgroundColor = hex;
-    if (hexText) hexText.innerText = hex;
-    
-    // HSL -> HSV 변환 후 피커 상태 동기화
+    applyHexToBaseInputs(hex);
+
     const hsl = hexToHsl(hex);
     const hsv = hslToHsv(hsl.h, hsl.s, hsl.l);
-    
+
     if (hueSlider) {
         hueSlider.value = hsv.h;
     }
     drawPickerCanvas(hsv.h);
     updatePickerMarker(hsv.s, hsv.v);
-    
+
     if (triggerGenerate) {
         generatePalette();
     }
 }
 
-// 커스텀 더블 슬라이더 초기화 및 정합성 제어
+/**
+ * 명암 범위 커스텀 더블 슬라이더를 초기화합니다.
+ */
 function initDoubleSlider() {
     const minInput = document.getElementById('lightMin');
     const maxInput = document.getElementById('lightMax');
     const sliderRange = document.getElementById('sliderRange');
     const textSpan = document.getElementById('lightRangeVal');
-    
+    if (!minInput || !maxInput || !sliderRange) return;
+
     function updateSlider() {
-        let minVal = parseInt(minInput.value);
-        let maxVal = parseInt(maxInput.value);
-        
+        let minVal = parseInt(minInput.value, 10);
+        let maxVal = parseInt(maxInput.value, 10);
+
         if (minVal > maxVal) {
-            let temp = minVal;
+            const temp = minVal;
             minVal = maxVal;
             maxVal = temp;
             minInput.value = minVal;
             maxInput.value = maxVal;
         }
-        
+
         sliderRange.style.left = `${minVal}%`;
         sliderRange.style.width = `${maxVal - minVal}%`;
-        
+
         if (textSpan) {
             textSpan.innerText = `${minVal}% ~ ${maxVal}%`;
         }
-        
+
         updateLightnessGuide(minVal, maxVal);
     }
-    
+
     minInput.addEventListener('input', () => {
-        let minVal = parseInt(minInput.value);
-        let maxVal = parseInt(maxInput.value);
+        const minVal = parseInt(minInput.value, 10);
+        const maxVal = parseInt(maxInput.value, 10);
         if (minVal > maxVal) {
             minInput.value = maxVal;
         }
         updateSlider();
         generatePalette();
     });
-    
+
     maxInput.addEventListener('input', () => {
-        let minVal = parseInt(minInput.value);
-        let maxVal = parseInt(maxInput.value);
+        const minVal = parseInt(minInput.value, 10);
+        const maxVal = parseInt(maxInput.value, 10);
         if (maxVal < minVal) {
             maxInput.value = minVal;
         }
         updateSlider();
         generatePalette();
     });
-    
+
     updateSlider();
 }
 
-// 기준 색상 마커 드래그 앤 드롭 핸들러
+/**
+ * 2차원 H-L 컬러 맵 상의 기준 색상 마커 드래그 앤 드롭을 처리합니다.
+ */
 function initDragAndDrop() {
     const wrapper = document.getElementById('colormapWrapper');
     const markerContainer = document.getElementById('colormapMarkers');
-    
+    if (!wrapper || !markerContainer) return;
+
     markerContainer.addEventListener('mousedown', (e) => {
         const marker = e.target.closest('.base-marker');
         if (!marker) return;
-        
+
         isDragging = true;
         e.preventDefault();
-        
+
         function onMouseMove(moveEvent) {
             if (!isDragging) return;
             const rect = wrapper.getBoundingClientRect();
-            
-            let x = (moveEvent.clientX - rect.left) / rect.width;
-            let y = (moveEvent.clientY - rect.top) / rect.height;
-            
-            x = Math.max(0, Math.min(1, x));
-            y = Math.max(0, Math.min(1, y));
-            
+
+            const x = Math.max(0, Math.min(1, (moveEvent.clientX - rect.left) / rect.width));
+            const y = Math.max(0, Math.min(1, (moveEvent.clientY - rect.top) / rect.height));
+
             const h = Math.round(x * 360) % 360;
             const l = Math.round((1 - y) * 100);
-            
+
             const baseColorEl = document.getElementById('baseColor');
             const currentHsl = hexToHsl(baseColorEl.value);
-            
-            let s = currentHsl.s;
-            if (s < 5) {
-                s = 80;
-            }
-            
+            const s = currentHsl.s < 5 ? 80 : currentHsl.s;
+
             const newHex = hslToHex(h, s, l);
-            baseColorEl.value = newHex;
-            updateBaseColorInputStyle(newHex);
-            
-            document.getElementById('hiddenColorPicker').value = newHex;
-            
-            // 2D HSV 피커 동기화
+            applyHexToBaseInputs(newHex);
+
             const customPicker = document.getElementById('customColorPicker');
             if (customPicker && customPicker.style.display === 'block') {
                 const hueSlider = document.getElementById('pickerHue');
                 if (hueSlider) hueSlider.value = h;
-                
+
                 const hsv = hslToHsv(h, s, l);
                 drawPickerCanvas(h);
                 updatePickerMarker(hsv.s, hsv.v);
-                
-                const hexText = document.getElementById('pickerHexText');
-                const previewChip = document.getElementById('pickerPreview');
-                if (hexText) hexText.innerText = newHex;
-                if (previewChip) previewChip.style.backgroundColor = newHex;
             }
-            
+
             generatePaletteFromDrag(h, s, l, newHex);
         }
-        
+
         function onMouseUp() {
             isDragging = false;
             document.removeEventListener('mousemove', onMouseMove);
             document.removeEventListener('mouseup', onMouseUp);
             generatePalette();
         }
-        
+
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
     });
 }
 
-// 드래그 중의 가벼운 실시간 갱신 로직 (성능 보장)
 function generatePaletteFromDrag(baseH, baseS, baseL, newHex) {
-    const count = parseInt(document.getElementById('extractCount').value);
-    const lightSteps = parseInt(document.getElementById('lightSteps').value) || 1;
+    const count = parseInt(document.getElementById('extractCount').value, 10);
+    const lightSteps = parseInt(document.getElementById('lightSteps').value, 10) || 1;
     const method = document.getElementById('extractMethod').value;
-    const minL = parseInt(document.getElementById('lightMin').value);
-    const maxL = parseInt(document.getElementById('lightMax').value);
-    
+    const minL = parseInt(document.getElementById('lightMin').value, 10);
+    const maxL = parseInt(document.getElementById('lightMax').value, 10);
+
     const colors = extractColors(baseH, baseS, baseL, newHex, count, method, minL, maxL, lightSteps);
     currentExtractedColors = colors;
-    
+
     renderPalette(colors);
     updateMarkerPositions({ h: baseH, s: baseS, l: baseL }, newHex, colors);
     renderContrastStrip(colors);
     updateLightnessGuide(minL, maxL);
+    const satLabel = document.getElementById('colormapSatLabel');
+    if (satLabel) {
+        satLabel.innerText = `채도: ${baseS}%`;
+    }
 }
 
-// "코드로 추출" 클립보드 복사 및 Toast 팝업
+/**
+ * 클립보드 복사 공통 유틸리티 (비보안 file:// 컨텍스트 대응 폴백 포함)
+ * @param {string} text - 복사할 문자열
+ * @param {string} successMessage - 복사 성공 시 표시할 토스트 메시지
+ */
+function copyTextWithFallback(text, successMessage) {
+    const fallbackCopy = () => {
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showToast(ok ? successMessage : '복사에 실패했습니다.');
+        } catch (err) {
+            console.error('클립보드 폴백 복사 실패:', err);
+            showToast('복사에 실패했습니다.');
+        }
+    };
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text)
+            .then(() => showToast(successMessage))
+            .catch(() => fallbackCopy());
+    } else {
+        fallbackCopy();
+    }
+}
+
 function initExportButton() {
     const exportBtn = document.getElementById('btnExportCode');
     if (!exportBtn) return;
-    
+
     exportBtn.addEventListener('click', () => {
         if (currentExtractedColors.length === 0) return;
-        
+
         const hexList = currentExtractedColors.map(c => `"${c.hex}"`).join(', ');
         const codeString = `const colorPalette = [\n  ${hexList}\n];`;
-        
-        navigator.clipboard.writeText(codeString).then(() => {
-            showToast('클립보드에 복사되었습니다.');
-        }).catch(err => {
-            console.error('클립보드 복사 실패: ', err);
-            showToast('복사에 실패했습니다.');
-        });
+        copyTextWithFallback(codeString, '클립보드에 복사되었습니다.');
     });
 }
 
 function showToast(message) {
     const toast = document.getElementById('toastMessage');
     if (!toast) return;
-    
+
+    if (toastTimeoutId) {
+        clearTimeout(toastTimeoutId);
+    }
+
     toast.innerText = message;
     toast.classList.add('show');
-    
-    setTimeout(() => {
+
+    toastTimeoutId = setTimeout(() => {
         toast.classList.remove('show');
+        toastTimeoutId = null;
     }, 1000);
 }
 
-// 기준 색상 입력 스타일(배경색, 텍스트 가독성 색상) 동적 변경
 function updateBaseColorInputStyle(hex) {
     const input = document.getElementById('baseColor');
-    let cleanHex = hex.trim();
+    if (!input) return;
+
+    let cleanHex = String(hex).trim();
     if (cleanHex && !cleanHex.startsWith('#')) {
         cleanHex = '#' + cleanHex;
     }
-    
+
     if (/^#([0-9A-F]{3}){1,2}$/i.test(cleanHex)) {
         input.style.backgroundColor = cleanHex;
         const luminance = getRelativeLuminance(cleanHex);
@@ -555,89 +616,78 @@ function updateBaseColorInputStyle(hex) {
     }
 }
 
-// 추출 개수 & 명암 단계 인풋 비활성화(disabled) 여부 동기화 및 회색조 피드백 개선
+/**
+ * 추출 방법에 따라 추출 개수 및 명암 단계 입력창의 활성화/제약 상태를 갱신합니다.
+ */
 function updateInputsState(method) {
     const countInput = document.getElementById('extractCount');
     const stepsInput = document.getElementById('lightSteps');
     if (!countInput || !stepsInput) return;
-    
-    const isCountFixed = ['ppt', 'rainbow', 'google'].includes(method);
-    const isStepsFixed = ['ppt', 'rainbow'].includes(method); // 구글색은 steps 가변조절 가능
-    
-    // 1. 추출 개수 인풋 제어
-    if (isCountFixed) {
-        if (method === 'ppt') countInput.value = 7;
-        else if (method === 'rainbow') countInput.value = 10;
-        else if (method === 'google') countInput.value = 8;
-        
+
+    const preset = PRESET_CONFIG[method];
+
+    if (preset && preset.fixedCount) {
+        countInput.value = preset.count;
         countInput.disabled = true;
-        countInput.style.backgroundColor = '#e9ecef';
-        countInput.style.color = '#6c757d';
-        countInput.style.cursor = 'not-allowed';
     } else {
         countInput.disabled = false;
-        countInput.style.backgroundColor = '';
-        countInput.style.color = '';
-        countInput.style.cursor = '';
     }
-    
-    // 2. 명암 단계 인풋 제어
-    if (isStepsFixed) {
-        if (method === 'ppt') stepsInput.value = 1;
-        else if (method === 'rainbow') stepsInput.value = 1;
-        
+
+    if (preset && preset.fixedSteps) {
+        stepsInput.value = preset.defaultSteps;
         stepsInput.disabled = true;
-        stepsInput.style.backgroundColor = '#e9ecef';
-        stepsInput.style.color = '#6c757d';
-        stepsInput.style.cursor = 'not-allowed';
     } else {
         stepsInput.disabled = false;
-        stepsInput.style.backgroundColor = '';
-        stepsInput.style.color = '';
-        stepsInput.style.cursor = '';
-        
-        // 구글색 프리셋은 1~3단계 범위로 조작 한도 제한
-        if (method === 'google') {
-            stepsInput.max = 3;
-            let val = parseInt(stepsInput.value) || 3;
-            if (val > 3) {
-                stepsInput.value = 3;
-            } else if (val < 1) {
-                stepsInput.value = 1;
-            }
+        if (preset && preset.maxSteps) {
+            stepsInput.max = preset.maxSteps;
+            const val = parseInt(stepsInput.value, 10) || preset.defaultSteps;
+            stepsInput.value = Math.max(1, Math.min(preset.maxSteps, val));
         } else {
-            stepsInput.removeAttribute('max');
+            stepsInput.max = 10;
         }
     }
 }
 
-// 추출 방법 변경 시 명암 단계(lightSteps) 설정 자동 업데이트 및 예외 처리
+/**
+ * 추출 방법 변경 시 사용자의 명암 단계 설정을 보존하면서 프리셋 전환을 처리합니다.
+ */
 function handleMethodChange(method) {
     const stepsInput = document.getElementById('lightSteps');
     if (!stepsInput) return;
-    if (method === 'ppt') {
-        stepsInput.value = 1;
-    } else if (method === 'rainbow') {
-        stepsInput.value = 1;
-    } else if (method === 'google') {
-        stepsInput.value = 3;
-    } else {
-        stepsInput.value = 1;
+
+    // 직전 모드가 일반 알고리즘이었으면 사용자가 설정한 명암 단계를 백업
+    if (!PRESET_CONFIG[previousMethod]) {
+        lastUserLightSteps = Math.max(1, parseInt(stepsInput.value, 10) || 1);
     }
+
+    const preset = PRESET_CONFIG[method];
+    if (preset) {
+        stepsInput.value = preset.defaultSteps;
+    } else if (PRESET_CONFIG[previousMethod]) {
+        // 고정 프리셋에서 일반 알고리즘으로 복귀할 때만 이전 사용자 명암 단계를 복원
+        stepsInput.value = lastUserLightSteps;
+    }
+
+    previousMethod = method;
 }
 
-// 메인 색상 추출 및 페이지 리프레시 컨트롤러
+/**
+ * 메인 색상 추출 및 UI 전체 갱신 컨트롤러
+ */
 function generatePalette() {
-    const baseColorInput = document.getElementById('baseColor').value.trim();
-    const method = document.getElementById('extractMethod').value;
-    
-    // 고정 프리셋 상태 동기화 및 회색조 피드백 선반영
+    const baseColorEl = document.getElementById('baseColor');
+    const methodEl = document.getElementById('extractMethod');
+    if (!baseColorEl || !methodEl) return;
+
+    const baseColorInput = baseColorEl.value.trim();
+    const method = methodEl.value;
+
     updateInputsState(method);
 
-    const count = parseInt(document.getElementById('extractCount').value);
-    const lightSteps = parseInt(document.getElementById('lightSteps').value) || 1;
-    const minL = parseInt(document.getElementById('lightMin').value);
-    const maxL = parseInt(document.getElementById('lightMax').value);
+    const count = parseInt(document.getElementById('extractCount').value, 10) || 8;
+    const lightSteps = parseInt(document.getElementById('lightSteps').value, 10) || 1;
+    const minL = parseInt(document.getElementById('lightMin').value, 10);
+    const maxL = parseInt(document.getElementById('lightMax').value, 10);
 
     let cleanHex = baseColorInput;
     if (cleanHex && !cleanHex.startsWith('#')) {
@@ -646,9 +696,9 @@ function generatePalette() {
     if (!/^#([0-9A-F]{3}){1,2}$/i.test(cleanHex)) {
         return;
     }
-    
+    cleanHex = cleanHex.toUpperCase();
+
     const baseHsl = hexToHsl(cleanHex);
-    
     const colors = extractColors(baseHsl.h, baseHsl.s, baseHsl.l, cleanHex, count, method, minL, maxL, lightSteps);
     currentExtractedColors = colors;
 
@@ -659,53 +709,55 @@ function generatePalette() {
     updateLightnessGuide(minL, maxL);
 }
 
-// 2차원 컬러 맵 배경 드로잉 (무채색 드래그 시 맵 붕괴 방지를 위해 렌더 채도는 100% 고정)
+/**
+ * 2차원 H-L 컬러 맵 배경을 렌더링합니다 (정적 배경은 최초 1회만 픽셀 연산 수행).
+ */
 function drawColorMap(s) {
-    const canvas = document.getElementById('colorMapCanvas');
-    if (!canvas) return;
-    
-    canvas.width = 180;
-    canvas.height = 75;
-    
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    
-    const drawS = 100;
-    
-    const imgData = ctx.createImageData(width, height);
-    for (let y = 0; y < height; y++) {
-        let l = 100 - (y / height) * 100;
-        for (let x = 0; x < width; x++) {
-            let h = (x / width) * 360;
-            let hex = hslToHex(h, drawS, l);
-            
-            let r = parseInt(hex.substring(1, 3), 16);
-            let g = parseInt(hex.substring(3, 5), 16);
-            let b = parseInt(hex.substring(5, 7), 16);
-            
-            let idx = (y * width + x) * 4;
-            imgData.data[idx] = r;
-            imgData.data[idx+1] = g;
-            imgData.data[idx+2] = b;
-            imgData.data[idx+3] = 255;
-        }
-    }
-    ctx.putImageData(imgData, 0, 0);
-    
     const satLabel = document.getElementById('colormapSatLabel');
     if (satLabel) {
         satLabel.innerText = `채도: ${s}%`;
     }
+
+    if (isColorMapRendered) return;
+
+    const canvas = document.getElementById('colorMapCanvas');
+    if (!canvas) return;
+
+    const width = 180;
+    const height = 75;
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    const drawS = 100;
+    const imgData = ctx.createImageData(width, height);
+
+    for (let y = 0; y < height; y++) {
+        const l = 100 - (y / height) * 100;
+        for (let x = 0; x < width; x++) {
+            const h = (x / width) * 360;
+            const hex = hslToHex(h, drawS, l);
+
+            const r = parseInt(hex.substring(1, 3), 16);
+            const g = parseInt(hex.substring(3, 5), 16);
+            const b = parseInt(hex.substring(5, 7), 16);
+
+            const idx = (y * width + x) * 4;
+            imgData.data[idx] = r;
+            imgData.data[idx + 1] = g;
+            imgData.data[idx + 2] = b;
+            imgData.data[idx + 3] = 255;
+        }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    isColorMapRendered = true;
 }
 
-// 컬러 맵 위에 마커 생성 및 노드 추가
 function renderMarkers(baseHsl, baseHex, colors) {
     const markerContainer = document.getElementById('colormapMarkers');
     if (!markerContainer) return;
     markerContainer.innerHTML = '';
-    
-    // 1. 기준 색상 마커 (검은 테두리)
+
     const baseMarker = document.createElement('div');
     baseMarker.className = 'map-marker base-marker';
     baseMarker.style.left = `${(baseHsl.h / 360) * 100}%`;
@@ -713,8 +765,7 @@ function renderMarkers(baseHsl, baseHex, colors) {
     baseMarker.style.backgroundColor = baseHex;
     baseMarker.setAttribute('data-tooltip', `기준: ${baseHex} (H:${baseHsl.h}°, S:${baseHsl.s}%, L:${baseHsl.l}%)`);
     markerContainer.appendChild(baseMarker);
-    
-    // 2. 추출된 색상 마커들
+
     colors.forEach((color, index) => {
         const marker = document.createElement('div');
         marker.className = 'map-marker extracted-marker';
@@ -723,23 +774,18 @@ function renderMarkers(baseHsl, baseHex, colors) {
         marker.style.backgroundColor = color.hex;
         marker.setAttribute('data-tooltip', `#${index + 1}: ${color.hex} (H:${color.h}°, S:${color.s}%, L:${color.l}%)`);
         marker.setAttribute('data-index', index);
-        
-        marker.addEventListener('mouseenter', () => {
-            highlightCard(index, true);
-        });
-        marker.addEventListener('mouseleave', () => {
-            highlightCard(index, false);
-        });
-        
+
+        marker.addEventListener('mouseenter', () => highlightCard(index, true));
+        marker.addEventListener('mouseleave', () => highlightCard(index, false));
+
         markerContainer.appendChild(marker);
     });
 }
 
-// 드래그 중 성능 확보를 위해 마커 위치만 미끄러지게 갱신하는 함수
 function updateMarkerPositions(baseHsl, baseHex, colors) {
     const markerContainer = document.getElementById('colormapMarkers');
     if (!markerContainer) return;
-    
+
     const baseMarker = markerContainer.querySelector('.base-marker');
     if (baseMarker) {
         baseMarker.style.left = `${(baseHsl.h / 360) * 100}%`;
@@ -747,7 +793,7 @@ function updateMarkerPositions(baseHsl, baseHex, colors) {
         baseMarker.style.backgroundColor = baseHex;
         baseMarker.setAttribute('data-tooltip', `기준: ${baseHex} (H:${baseHsl.h}°, S:${baseHsl.s}%, L:${baseHsl.l}%)`);
     }
-    
+
     const extractedMarkers = markerContainer.querySelectorAll('.extracted-marker');
     if (extractedMarkers.length === colors.length) {
         extractedMarkers.forEach((marker, index) => {
@@ -762,36 +808,33 @@ function updateMarkerPositions(baseHsl, baseHex, colors) {
     }
 }
 
-// 인접 대비 확인 스트립 렌더링 (n x m 격자 그리드 배치)
 function renderContrastStrip(colors) {
     const stripContainer = document.getElementById('contrastStrip');
     if (!stripContainer) return;
     stripContainer.innerHTML = '';
-    
+
     const method = document.getElementById('extractMethod').value;
-    let count = parseInt(document.getElementById('extractCount').value) || 10;
-    let lightSteps = parseInt(document.getElementById('lightSteps').value) || 1;
-    
-    // 고정 프리셋일 때의 그리드 보정
-    if (method === 'ppt') { count = 7; lightSteps = 1; }
-    else if (method === 'rainbow') { count = 10; lightSteps = 1; }
-    else if (method === 'google') { count = 8; lightSteps = parseInt(document.getElementById('lightSteps').value) || 3; }
-    
+    const preset = PRESET_CONFIG[method];
+    const count = preset ? preset.count : (parseInt(document.getElementById('extractCount').value, 10) || 8);
+    const lightSteps = (preset && preset.fixedSteps)
+        ? preset.defaultSteps
+        : (parseInt(document.getElementById('lightSteps').value, 10) || (preset ? preset.defaultSteps : 1));
+
     stripContainer.style.display = 'grid';
     stripContainer.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
     stripContainer.style.height = `${lightSteps * 35}px`;
-    
+
     colors.forEach((color, index) => {
         const chip = document.createElement('div');
         chip.className = 'contrast-chip';
         chip.style.backgroundColor = color.hex;
         chip.style.height = '100%';
-        
+
         chip.innerHTML = `
             <span class="contrast-chip-text text-dark">Aa</span>
             <span class="contrast-chip-text text-light">Aa</span>
         `;
-        
+
         chip.addEventListener('mouseenter', () => {
             highlightCard(index, true);
             const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
@@ -802,32 +845,30 @@ function renderContrastStrip(colors) {
             const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
             if (marker) marker.classList.remove('active');
         });
-        
+        chip.addEventListener('click', () => {
+            copyToClipboard(color.hex);
+        });
+
         stripContainer.appendChild(chip);
     });
 }
 
-// 명암 범위를 색상 분포 맵 상에 반투명 가이드 레이어로 오버레이 표시
 function updateLightnessGuide(minL, maxL) {
     let guide = document.getElementById('colormapLightGuide');
     const wrapper = document.getElementById('colormapWrapper');
     if (!wrapper) return;
-    
+
     if (!guide) {
         guide = document.createElement('div');
         guide.id = 'colormapLightGuide';
         guide.className = 'colormap-light-guide';
         wrapper.appendChild(guide);
     }
-    
-    const topPercent = 100 - maxL;
-    const heightPercent = maxL - minL;
-    
-    guide.style.top = `${topPercent}%`;
-    guide.style.height = `${heightPercent}%`;
+
+    guide.style.top = `${100 - maxL}%`;
+    guide.style.height = `${maxL - minL}%`;
 }
 
-// 결과 카드 호버 효과 제어
 function highlightCard(index, isActive) {
     const cards = document.querySelectorAll('.color-card');
     if (cards[index]) {
@@ -844,14 +885,14 @@ function highlightCard(index, isActive) {
     }
 }
 
-// 화면에 추출된 색상 결과 리스트 카드 렌더링
 function renderPalette(colors) {
     const container = document.getElementById('paletteResult');
+    if (!container) return;
     container.innerHTML = '';
 
     colors.forEach((color, index) => {
         const luminance = getRelativeLuminance(color.hex).toFixed(3);
-        
+
         const card = document.createElement('div');
         card.className = 'color-card';
         card.setAttribute('data-index', index);
@@ -862,31 +903,31 @@ function renderPalette(colors) {
                 <div><strong>HSL:</strong> ${color.h}°, ${color.s}%, ${color.l}%</div>
                 <div><strong>Luminance:</strong> ${luminance}</div>
             </div>
-            <button class="copy-btn" onclick="copyToClipboard('${color.hex}')">Copy</button>
+            <button type="button" class="copy-btn">Copy</button>
         `;
-        
+
+        const copyBtn = card.querySelector('.copy-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => copyToClipboard(color.hex));
+        }
+
         card.addEventListener('mouseenter', () => {
             const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
             if (marker) marker.classList.add('active');
             const chip = document.getElementById('contrastStrip')?.children[index];
-            if (chip) chip.style.flex = '1.8';
+            if (chip) chip.classList.add('active');
         });
         card.addEventListener('mouseleave', () => {
             const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
             if (marker) marker.classList.remove('active');
             const chip = document.getElementById('contrastStrip')?.children[index];
-            if (chip) chip.style.flex = '';
+            if (chip) chip.classList.remove('active');
         });
-        
+
         container.appendChild(card);
     });
 }
 
-// 클립보드 복사 유틸리티
 function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        showToast(`${text} 코드가 복사되었습니다.`);
-    }).catch(err => {
-        console.error('복사 실패: ', err);
-    });
+    copyTextWithFallback(text, `${text} 코드가 복사되었습니다.`);
 }

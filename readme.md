@@ -39,9 +39,12 @@ UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레�
 
 ## 파일 구조
 
-- `index.html`: 메인 웹 UI 마크업 및 스타일 시트.
+- `index.html`: 메인 웹 UI 마크업 및 모달 폴백 템플릿.
+- `style.css`: 메인 레이아웃, 다크모드 테마, 컬러 피커/맵 및 모달 통합 스타일시트.
+- `version.js`: 시맨틱 버전(`SEMVER`) 및 캐시 버스팅 태그(`CACHE_BUST_TAG`) 이원화 관리 모듈.
 - `main.js`: 상태 제어, 이벤트 바인딩 및 뷰 렌더링.
 - `calcColor.js`: sRGB-Oklab 변환, CIEDE2000 연산 및 색상 추출 알고리즘 라이브러리.
 - `shortcut.js`: 단축키 설정 관리 및 키 바인딩 이벤트 엔진.
 - `help.html`: 사용자용 알고리즘 및 프리셋 상세 설명 모달 파일.
 - `shortcut.html`: 단축키 조회 및 매핑 변경 설정 모달 파일.
+- `icon.svg` / `icon.png`: UniPalette 브랜드 로고 및 파비콘 아이콘.
