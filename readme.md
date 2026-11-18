@@ -23,7 +23,7 @@ UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레�
 3. **고수준 사용자 경험(UX)**
    - **2차원 H-L 컬러 맵**: 가로축(Hue), 세로축(Lightness) 분포 맵 및 기준 마커 드래그 앤 드롭 기능.
    - **인접 대비 확인 스트립**: 생성된 칩들 간의 명도/색상 인접 대비(글자 가독성) 시각 피드백 제공.
-   - **다크모드 미리보기**: 라이트/다크 테마 환경에서 팔레트 카드들의 가시성을 실시간 토글하여 체크.
+   - **배색 바꾸기**: 기본 배색 4종(밝게·어둡게·스톤·네이비)이나 UniPalette로 직접 고른 색으로 이 화면의 배색을 바꾸고, 대화상자도 그 밝기를 따릅니다.
    - **원클릭 클립보드 복사**: 단일 색상 HEX 복사 또는 전체 팔레트를 배열 형태로 코드로 추출.
    - **편리한 단축키 매핑**: 추출 개수 증감, 명암 단계 조절 및 추출 알고리즘 스위칭에 유연한 단축키 설정 바인딩 제공.
 
@@ -45,7 +45,9 @@ UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레�
 ```
 
 - 파일 네 개(`version.js`, `calcColor.js`, `unipalette.js`, `unipalette.css`)를 복사해 넣어도 됩니다.
-- 옵션: `base`, `count`(2~36), `steps`(1~10), `method`, `lightMin`, `lightMax`, `shape`(`auto` | `grid`), `theme`(`auto` | `light` | `dark`), `lang`(`auto` | `ko` | `en` | `ja` | `zh`, auto는 브라우저 언어), `title`, `remember`(기본 켬), `storageKey`.
+- 옵션: `base`, `count`(2~36), `steps`(1~10), `method`, `lightMin`, `lightMax`, `shape`(`auto` | `grid`), `theme`(`auto` | `light` | `dark`), `lang`(`auto` | `ko` | `en` | `ja` | `zh`, auto는 브라우저 언어), `title`, `remember`(기본 켬), `storageKey`,
+  `minCount`(추출 개수의 최솟값), `view`(`full` | `simple`: 간단 보기는 오른쪽 아래에 작게 떠서 뒤 화면을 가리지 않음),
+  `labels`(색마다 붙일 이름 배열, 또는 `(count, hexes) => 배열`), `onChange(result)`(값이 바뀔 때마다 불림, 실시간 미리보기용).
 - 넘긴 옵션이 앞서고, 넘기지 않은 항목은 마지막에 고른 값(`unipalette_settings_v1`) → 기본값 순으로 채웁니다.
 - 화면 없이 계산만: `UniPalette.extract(options)` (같은 모양의 배열).
 - 대화상자 안의 단축키는 단독 화면과 같습니다(개수 `+`/`-`, 명암 단계 `*`/`/`, 방법 `a`~`f`, 프리셋 `x`~`z`, Esc 취소, Enter 선택).
@@ -66,7 +68,8 @@ UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레�
 - `unipalette.css`: 모듈 스타일(`.up-` 접두어, 라이트/다크 토큰).
 - `calcColor.js`: sRGB-Oklab 변환, CIEDE2000 연산 및 색상 추출 알고리즘 라이브러리(DOM 없음).
 - `version.js`: 시맨틱 버전(`SEMVER`) 및 캐시 버스팅 태그(`CACHE_BUST_TAG`) 이원화 관리 모듈.
-- `index.html` / `main.js` / `style.css`: 모듈 예제 화면(Input arguments 목록 → 대화상자 → 돌려받은 배열), 설명서·단축키 창, 새 판 알림, 다크모드·언어 기억.
+- `index.html` / `main.js` / `style.css`: 모듈 예제 화면(Input arguments 목록 → 대화상자 → 돌려받은 배열), 설명서·단축키 창, 새 판 알림, 배색·언어 기억.
+- `scheme.js`: 이 화면의 배색. 서로 떨어진 색 5개 이상을 역할로 나눕니다: 첫 색이 테마색, 가장 먼 색(반대색)이 하이라이트색, 나머지가 테마색에서 가까운 순서로 서브 테마색 1·2·3. 버튼·인터페이스색은 서브 1·2·3 중에서 고릅니다. 바탕·글자는 테마색의 채도를 낮춰 만들고, 글자 대비는 WCAG AA(본문 4.5:1, 흐린 글자 3:1)에 맞춰 자동으로 고칩니다. 기본 배색 4종(밝게·어둡게·스톤·네이비)과 UniPalette 간단 보기로 고르는 「내 배색」(고르는 동안 실시간 반영)이 있습니다.
 - `i18n.js`: 예제 화면·설명서·단축키 창의 다국어 사전(한국어·English·日本語·中文). 대화상자의 글자는 `unipalette.js` 안에 있습니다.
 - `shortcut.js`: 단축키 바꾸기 동작(저장 키 `unipalette_shortcuts`, 대화상자가 읽어 씀).
 - `manifest.webmanifest`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`: 홈 화면 설치.

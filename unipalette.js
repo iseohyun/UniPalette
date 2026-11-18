@@ -13,7 +13,10 @@
  * 옵션(모두 생략 가능): base, count(2~36), steps(1~10), method, lightMin, lightMax(0~100),
  *   shape('auto' | 'grid': grid면 단계가 1이어도 2차원), theme('auto' | 'light' | 'dark'),
  *   title(비우면 언어별 기본 제목), lang('auto' | 'ko' | 'en' | 'ja' | 'zh', auto는 브라우저 언어),
- *   remember(기본 true: 마지막 값을 기억해 다음에 이어 씀), storageKey.
+ *   remember(기본 true: 마지막 값을 기억해 다음에 이어 씀), storageKey,
+ *   minCount(추출 개수의 최솟값, 기본 2), view('full' | 'simple': 간단 보기는 화면 오른쪽 아래에 작게 뜨고 배경을 가리지 않음),
+ *   labels(색마다 붙일 이름 배열 또는 (count, hexes) => 배열 함수, 단계가 1일 때 칩 아래에 보임),
+ *   onChange(result): 값이 바뀔 때마다 돌려줄 것과 같은 모양의 배열로 불린다. 실시간 미리보기에 쓴다.
  * 넘긴 옵션이 기억한 값보다 앞선다. 넘기지 않은 항목만 기억한 값 → 기본값 순으로 채운다.
  */
 
@@ -42,6 +45,7 @@
     const STRINGS = {
         ko: {
             name: '한국어',
+            simpleView: '간단히', fullView: '자세히',
             title: '색 고르기', cancel: '취소', cancelEsc: '취소 (Esc)', confirm: '선택', copyCode: '코드 복사',
             baseColor: '기준 색상', hue: '색상(Hue)', dropper: '스포이드', nativePicker: '시스템 색 고르기', close: '닫기',
             countSteps: '추출 개수 · 명암 단계', count: '추출 개수', steps: '명암 단계', method: '추출 방법',
@@ -59,6 +63,7 @@
         },
         en: {
             name: 'English',
+            simpleView: 'Simple', fullView: 'Details',
             title: 'Pick colors', cancel: 'Cancel', cancelEsc: 'Cancel (Esc)', confirm: 'Select', copyCode: 'Copy code',
             baseColor: 'Base color', hue: 'Hue', dropper: 'Eyedropper', nativePicker: 'System color picker', close: 'Close',
             countSteps: 'Count · Lightness steps', count: 'Count', steps: 'Lightness steps', method: 'Method',
@@ -76,6 +81,7 @@
         },
         ja: {
             name: '日本語',
+            simpleView: 'シンプル', fullView: '詳細',
             title: '色を選ぶ', cancel: 'キャンセル', cancelEsc: 'キャンセル (Esc)', confirm: '選択', copyCode: 'コードをコピー',
             baseColor: '基準色', hue: '色相(Hue)', dropper: 'スポイト', nativePicker: 'システムのカラーピッカー', close: '閉じる',
             countSteps: '抽出数 · 明度段階', count: '抽出数', steps: '明度段階', method: '抽出方法',
@@ -93,6 +99,7 @@
         },
         zh: {
             name: '中文',
+            simpleView: '简洁', fullView: '详细',
             title: '选择颜色', cancel: '取消', cancelEsc: '取消 (Esc)', confirm: '选择', copyCode: '复制代码',
             baseColor: '基准色', hue: '色相(Hue)', dropper: '吸管', nativePicker: '系统取色器', close: '关闭',
             countSteps: '提取数量 · 明度级数', count: '提取数量', steps: '明度级数', method: '提取方法',
@@ -157,7 +164,11 @@
         title: '',          // 비우면 언어별 기본 제목
         lang: 'auto',
         remember: true,
-        storageKey: STORAGE_KEY
+        storageKey: STORAGE_KEY,
+        minCount: LIMITS.countMin,
+        view: 'full',
+        labels: null,
+        onChange: null
     };
 
     // 기억하는 항목 (shape·theme·title은 부르는 앱이 정하는 값이라 기억하지 않는다)
@@ -219,6 +230,9 @@
         if (source.lang === 'auto' || STRINGS[source.lang]) out.lang = source.lang;
         if (typeof source.remember === 'boolean') out.remember = source.remember;
         if (typeof source.storageKey === 'string' && source.storageKey) out.storageKey = source.storageKey;
+        const minCount = toInt(source.minCount, LIMITS.countMin, LIMITS.countMax);
+        if (minCount !== null) out.minCount = minCount;
+        if (source.view === 'full' || source.view === 'simple') out.view = source.view;
         return out;
     }
 
@@ -273,6 +287,12 @@
         const storageKey = given.storageKey || DEFAULTS.storageKey;
         const remembered = remember ? loadRemembered(storageKey) : {};
         const state = Object.assign({}, DEFAULTS, remembered, given, { remember, storageKey });
+        // 함수와 배열은 기억하지 않고 그대로 받는다
+        const raw = options && typeof options === 'object' ? options : {};
+        state.onChange = typeof raw.onChange === 'function' ? raw.onChange : null;
+        // labels: 배열, 또는 개수를 받아 배열을 돌려주는 함수(개수를 바꾸면 이름도 따라 바뀐다)
+        state.labels = typeof raw.labels === 'function' || Array.isArray(raw.labels) ? raw.labels : null;
+        if (state.count < state.minCount) state.count = state.minCount;
         if (state.lightMin > state.lightMax) {
             const t = state.lightMin;
             state.lightMin = state.lightMax;
@@ -336,7 +356,7 @@
 
     function buildDialog(state, t) {
         const dialog = document.createElement('dialog');
-        dialog.className = 'up-dialog';
+        dialog.className = 'up-dialog' + (state.view === 'simple' ? ' up-simple' : '');
         dialog.dataset.theme = state.theme;
         const title = state.title || t('title');
         dialog.lang = state.langCode;
@@ -346,6 +366,7 @@
 <form method="dialog" class="up-shell">
   <div class="up-head">
     <h2 class="up-title"></h2>
+    <button type="button" class="up-view-btn" data-up="view-toggle"></button>
     <button type="button" class="up-icon-btn" data-up="cancel" title="${t('cancelEsc')}" aria-label="${t('cancel')}">${ICONS.close}</button>
   </div>
   <div class="up-body">
@@ -370,7 +391,7 @@
       <div class="up-field">
         <span class="up-label">${t('countSteps')}</span>
         <div class="up-pair">
-          <input type="number" data-up="count" min="${LIMITS.countMin}" max="${LIMITS.countMax}" title="${t('count')}" aria-label="${t('count')}">
+          <input type="number" data-up="count" min="${state.minCount}" max="${LIMITS.countMax}" title="${t('count')}" aria-label="${t('count')}">
           <input type="number" data-up="steps" min="${LIMITS.stepsMin}" max="${LIMITS.stepsMax}" title="${t('steps')}" aria-label="${t('steps')}">
         </div>
       </div>
@@ -379,7 +400,7 @@
         <select data-up="method" aria-label="${t('method')}">${options}</select>
       </div>
     </div>
-    <div class="up-field">
+    <div class="up-field up-full-only">
       <span class="up-label">${t('lightRange')} <small data-up="range-text"></small></span>
       <div class="up-range">
         <div class="up-range-track"></div>
@@ -617,6 +638,7 @@
 
             function renderStrip() {
                 const { colors, count, steps } = computed;
+                const labels = resolveLabels(count, colors.slice(0, count).map(c => c.hex));
                 el.strip.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
                 const frag = document.createDocumentFragment();
                 colors.forEach((c, i) => {
@@ -627,6 +649,14 @@
                     chip.title = `${c.hex} · H:${c.h}° S:${c.s}% L:${c.l}%`;
                     chip.setAttribute('aria-label', c.hex);
                     chip.innerHTML = '<span class="up-chip-dark">Aa</span><span class="up-chip-light">Aa</span>';
+                    const label = steps === 1 && labels ? labels[i] : '';
+                    if (label) {
+                        const tag = document.createElement('span');
+                        tag.className = 'up-chip-label';
+                        tag.textContent = label;
+                        chip.appendChild(tag);
+                        chip.title = label + ' · ' + chip.title;
+                    }
                     chip.addEventListener('mouseenter', () => setActive(i, true));
                     chip.addEventListener('mouseleave', () => setActive(i, false));
                     chip.addEventListener('click', () => {
@@ -635,7 +665,37 @@
                     frag.appendChild(chip);
                 });
                 el.strip.replaceChildren(frag);
+                el.strip.classList.toggle('up-strip-labeled', steps === 1 && !!labels);
                 el.size.textContent = steps > 1 ? `${count} × ${steps}` : t('colorsN', { n: count });
+            }
+
+            function resolveLabels(count, hexes) {
+                let list = state.labels;
+                if (typeof list === 'function') {
+                    try {
+                        list = list(count, hexes);
+                    } catch (err) {
+                        console.error('UniPalette: labels 함수에서 오류가 났습니다.', err);
+                        list = null;
+                    }
+                }
+                return Array.isArray(list) ? list.map(l => String(l == null ? '' : l).slice(0, 24)) : null;
+            }
+
+            // 부르는 앱의 실시간 미리보기. 앱 쪽 오류가 대화상자를 깨지 않게 막는다
+            function notifyChange() {
+                if (!state.onChange) return;
+                try {
+                    state.onChange(shapeResult(computed, state.shape));
+                } catch (err) {
+                    console.error('UniPalette: onChange에서 오류가 났습니다.', err);
+                }
+            }
+
+            function syncViewToggle() {
+                const simple = state.view === 'simple';
+                dialog.classList.toggle('up-simple', simple);
+                $('view-toggle').textContent = t(simple ? 'fullView' : 'simpleView');
             }
 
             // 오류 경계: 그리다 실패해도 대화상자는 살려 두고 이유와 「다시 시도」를 보여 준다
@@ -648,6 +708,7 @@
                     renderStrip();
                     el.error.hidden = true;
                     $('confirm').disabled = false;
+                    notifyChange();
                 } catch (err) {
                     console.error('UniPalette: 팔레트를 그리지 못했습니다.', err);
                     el.errorText.textContent = err && err.message ? err.message : String(err);
@@ -680,7 +741,7 @@
                 if (field === 'count') {
                     if (PRESETS[state.method]) return;
                     const v = state.count + delta;
-                    if (v >= LIMITS.countMin && v <= LIMITS.countMax) { state.count = v; render(); }
+                    if (v >= state.minCount && v <= LIMITS.countMax) { state.count = v; render(); }
                 } else {
                     const preset = PRESETS[state.method];
                     if (preset && preset.fixedSteps) return;
@@ -759,7 +820,7 @@
             /* --- 입력 칸 --- */
 
             el.count.addEventListener('input', () => {
-                const v = toInt(el.count.value, LIMITS.countMin, LIMITS.countMax);
+                const v = toInt(el.count.value, state.minCount, LIMITS.countMax);
                 if (v !== null) { state.count = v; render(); }
             });
             el.steps.addEventListener('input', () => {
@@ -840,8 +901,13 @@
                 e.preventDefault();
                 if (computed && el.error.hidden) finish(shapeResult(computed, state.shape));
             });
+            $('view-toggle').addEventListener('click', () => {
+                state.view = state.view === 'simple' ? 'full' : 'simple';
+                syncViewToggle();
+            });
             dialog.addEventListener('click', e => {
-                if (e.target === dialog) finish(null);   // 바깥(배경) 누르기
+                // 바깥(배경) 누르기. 간단 보기는 뒤의 화면을 보며 고르는 용도라 바깥을 눌러도 닫지 않는다
+                if (e.target === dialog && state.view !== 'simple') finish(null);
             });
             $('copy').addEventListener('click', () => {
                 if (!computed) return;
@@ -864,6 +930,7 @@
             } catch (err) {
                 console.error('UniPalette: 분포 맵 배경을 그리지 못했습니다.', err);
             }
+            syncViewToggle();
             render();
             dialog.showModal();
             $('confirm').focus();

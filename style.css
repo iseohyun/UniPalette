@@ -1,9 +1,10 @@
 /**
  * @fileoverview UniPalette 중앙 집중형 스타일시트 (style.css)
- * - 견본 화면(index.html)의 레이아웃, 다크모드 테마 변수, 공용/개별 모달 스타일
+ * - 견본 화면(index.html)의 레이아웃, 배색 토큰, 공용/개별 모달 스타일, 배색 패널
  * - 대화상자의 그래픽(피커, 분포 맵, 대비 스트립)은 모듈 스타일인 unipalette.css에 있다
  */
 
+/* 배색 토큰. 기본값은 「밝게」이고, 다른 배색은 scheme.js가 :root에 같은 이름으로 덮어쓴다 */
 :root {
   --bg-color: #f8f9fa;
   --panel-bg: #ffffff;
@@ -11,16 +12,19 @@
   --border-color: #dee2e6;
   --muted-text: #6c757d;
   --disabled-bg: #e9ecef;
-}
-
-/* 다크모드 미리보기용 클래스 */
-.preview-dark {
-  --bg-color: #121212;
-  --panel-bg: #1e1e1e;
-  --text-color: #e0e0e0;
-  --border-color: #333333;
-  --muted-text: #adb5bd;
-  --disabled-bg: #2a2a2a;
+  --accent: #007bff;
+  --accent-hover: #0056b3;
+  --accent-text: #ffffff;
+  --danger: #e03131;
+  --primary: #6c757d;
+  --sub: #007bff;
+  --sub-bg: #eef5ff;
+  --sub2: #6f42c1;
+  --sub3: #20c997;
+  --highlight: #fd7e14;
+  --highlight-text: #000000;
+  --highlight-ink: #c25700;
+  color-scheme: light;
 }
 
 body {
@@ -195,8 +199,8 @@ select:disabled {
   cursor: default;
 }
 .primary-btn {
-  background-color: #007bff;
-  color: white;
+  background-color: var(--accent);
+  color: var(--accent-text);
   border: none;
   padding: 10px 20px;
   border-radius: 4px;
@@ -204,7 +208,7 @@ select:disabled {
   font-weight: bold;
 }
 .primary-btn:hover {
-  background-color: #0056b3;
+  background-color: var(--accent-hover);
 }
 .header-btn:disabled {
   opacity: 0.5;
@@ -216,7 +220,7 @@ select:disabled {
   align-items: center;
   gap: 8px;
   padding: 18px;
-  border: 1px solid #e03131;
+  border: 1px solid var(--danger);
   border-radius: 8px;
   background: var(--panel-bg);
 }
@@ -352,7 +356,7 @@ select:disabled {
   border: none;
   font-size: 20px;
   cursor: pointer;
-  color: #6c757d;
+  color: var(--muted-text);
   line-height: 1;
   padding: 0;
 }
@@ -395,14 +399,14 @@ select:disabled {
 .algo-title {
   font-size: 13px;
   font-weight: bold;
-  color: #007bff;
+  color: var(--accent);
   margin-bottom: 6px;
 }
 
 .algo-desc {
   font-size: 12px;
   line-height: 1.5;
-  color: var(--muted-text, #495057);
+  color: var(--muted-text);
 }
 
 /* ==========================================================================
@@ -410,7 +414,7 @@ select:disabled {
    ========================================================================== */
 .modal-desc {
   font-size: 12px;
-  color: #6c757d;
+  color: var(--muted-text);
   margin-bottom: 15px;
   line-height: 1.4;
 }
@@ -427,7 +431,7 @@ select:disabled {
 }
 .shortcut-table th {
   font-weight: 600;
-  color: var(--muted-text, #495057);
+  color: var(--muted-text);
   background-color: rgba(0,0,0,0.02);
 }
 .action-label {
@@ -450,7 +454,7 @@ select:disabled {
 }
 .key-slot-btn:hover {
   background-color: var(--border-color);
-  border-color: #007bff;
+  border-color: var(--accent);
 }
 .key-slot-btn.recording {
   background-color: #fff3cd;
@@ -478,18 +482,18 @@ select:disabled {
   border: none;
 }
 .modal-action-btn.save {
-  background-color: #007bff;
-  color: #fff;
+  background-color: var(--accent);
+  color: var(--accent-text);
 }
 .modal-action-btn.save:hover {
-  background-color: #0056b3;
+  background-color: var(--accent-hover);
 }
 .modal-action-btn.reset {
-  background-color: #6c757d;
-  color: #fff;
+  background-color: var(--muted-text);
+  color: var(--panel-bg);
 }
 .modal-action-btn.reset:hover {
-  background-color: #5a6268;
+  background-color: var(--text-color);
 }
 
 /* 언어 고르기, Input arguments 목록, 설명서·단축키 창 */
@@ -569,15 +573,12 @@ select:disabled {
   font-size: 11px;
 }
 .shortcut-info-box strong:first-child {
-  color: #0056b3;
+  color: var(--accent);
 }
 .shortcut-info-box p {
   margin: 4px 0 0;
   color: var(--muted-text);
   line-height: 1.5;
-}
-.preview-dark .shortcut-info-box strong:first-child {
-  color: #80bdff;
 }
 @media (max-width: 640px) {
   .arg-row {
@@ -588,4 +589,204 @@ select:disabled {
   .arg-input {
     grid-column: 1 / -1;
   }
+}
+
+/* 배색 패널 */
+.scheme-wrap {
+  position: relative;
+}
+.scheme-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 500;
+  width: 280px;
+  padding: 12px;
+  background: var(--panel-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scheme-panel[hidden] {
+  display: none;
+}
+.scheme-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 8px;
+}
+.scheme-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  font-size: 12px;
+  background: none;
+  color: var(--text-color);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.scheme-tile:hover {
+  border-color: var(--border-color);
+}
+.scheme-tile[aria-pressed="true"] {
+  border-color: var(--accent);
+  font-weight: 700;
+}
+.scheme-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 30px;
+  border: 1px solid;
+  border-radius: 4px;
+}
+.scheme-swatch span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.scheme-pick {
+  width: 100%;
+  padding: 8px 12px;
+}
+.scheme-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted-text);
+}
+.scheme-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+@media (max-width: 560px) {
+  .scheme-panel {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+
+/* 배색 역할을 쓰는 곳: 테마색은 제목과 카드 머리의 띠, 서브 1은 소제목과 코드 상자,
+   서브 2는 타입 글자, 서브 3은 초점 테두리, 하이라이트는 인자 이름·알림·단축키 배지,
+   버튼·인터페이스색(--accent)은 서브 1·2·3 중 사용자가 고른 색 */
+.app-header h1 {
+  color: var(--primary);
+}
+.demo-card {
+  border-top: 3px solid var(--primary);
+}
+.demo-subtitle {
+  color: var(--sub);
+}
+.demo-code {
+  background: var(--sub-bg);
+}
+.arg-name {
+  color: var(--highlight-ink);
+}
+.arg-type {
+  color: var(--sub2);
+}
+:focus-visible {
+  outline: 2px solid var(--sub3);
+  outline-offset: 2px;
+}
+.arg-input input[type="checkbox"],
+.scheme-check input,
+.scheme-interface input {
+  accent-color: var(--accent);
+}
+.toast-message {
+  background: var(--highlight);
+  color: var(--highlight-text);
+}
+.primary-btn kbd {
+  background: var(--highlight);
+  color: var(--highlight-text);
+  border-color: transparent;
+}
+.update-notice {
+  border-left: 4px solid var(--highlight);
+}
+
+/* 이 배색의 역할 */
+.scheme-roles-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted-text);
+}
+.scheme-roles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.scheme-roles li {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.scheme-roles code {
+  font-size: 11px;
+  color: var(--muted-text);
+}
+.scheme-role-chip {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+.scheme-role-badge {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-style: normal;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+.scheme-interface {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.scheme-interface legend {
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted-text);
+}
+.scheme-interface label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.scheme-swatch {
+  gap: 3px;
+}
+.scheme-swatch span {
+  width: 8px;
+  height: 8px;
 }

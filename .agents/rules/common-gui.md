@@ -22,3 +22,4 @@
 | 좁은 화면 | 모듈·견본 모두 560px 아래에서 한 줄 배치 |
 | 테마 | 모듈 `theme` 옵션: auto · light · dark (auto는 시스템 설정) |
 | 언어 전환 | 견본 헤더의 언어 고르기(`unipalette_app_settings_v1.lang`), 모듈 `lang` 옵션(auto는 브라우저 언어) |
+| 테마 전환 (밝게·어둡게·스톤·네이비, 고른 것 기억) | 견본 헤더의 「배색」 패널. 4종에 UniPalette로 고르는 「내 배색」을 더함 (`unipalette_app_settings_v2`) |

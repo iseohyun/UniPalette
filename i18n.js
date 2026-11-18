@@ -11,7 +11,9 @@
     const STRINGS = {
         ko: {
             docTitle: 'UniPalette - 인지 균일 색상 추출기',
-            shortcut: '단축키', help: '설명서', dark: '다크모드', light: '라이트모드', language: '언어',
+            role_primary: '테마색', role_sub1: '서브 테마색 1', role_sub2: '서브 테마색 2', role_sub3: '서브 테마색 3', role_highlight: '하이라이트색', schemeRolesTitle: '이 배색의 역할', interfaceLabel: '버튼·인터페이스색', interfaceBadge: '인터페이스', sub1Short: '서브 1', sub2Short: '서브 2', sub3Short: '서브 3', schemeHint: '서로 떨어진 색 5개 이상을 고르면, 첫 색이 테마색, 가장 먼 색이 하이라이트색, 나머지가 테마색에서 가까운 순서로 서브 테마색 1·2·3이 됩니다. 고르는 동안 화면에 바로 반영되고, 취소하면 되돌아갑니다.',
+            scheme: '배색', scheme_light: '밝게', scheme_dark: '어둡게', scheme_stone: '스톤', scheme_navy: '네이비', schemeCustom: '내 배색', schemePick: 'UniPalette로 고르기', schemePickTitle: '배색 고르기', schemeDarkBase: '어두운 바탕', schemeAdjusted: '글자 대비가 부족해 글자 명도를 고쳤습니다.',
+            shortcut: '단축키', help: '설명서', language: '언어',
             exampleTitle: '모듈 예제',
             exampleDesc: '<code>UniPalette.pick()</code>을 부르는 예제입니다. 칸을 비우면 그 인자는 넘기지 않고 default를 씁니다. remember가 켜져 있으면 마지막에 고른 값이 default를 대신합니다.',
             inputArgs: 'Input arguments', defaultWord: 'default',
@@ -53,7 +55,9 @@
         },
         en: {
             docTitle: 'UniPalette - Perceptually uniform palette extractor',
-            shortcut: 'Shortcuts', help: 'Guide', dark: 'Dark mode', light: 'Light mode', language: 'Language',
+            role_primary: 'Theme', role_sub1: 'Sub theme 1', role_sub2: 'Sub theme 2', role_sub3: 'Sub theme 3', role_highlight: 'Highlight', schemeRolesTitle: 'Roles in this scheme', interfaceLabel: 'Buttons & UI color', interfaceBadge: 'UI', sub1Short: 'Sub 1', sub2Short: 'Sub 2', sub3Short: 'Sub 3', schemeHint: 'Pick 5 or more well-separated colors: the first becomes the theme color, the farthest becomes the highlight, and the rest become sub theme 1, 2, 3 from nearest to the theme. The page updates live while you pick; cancelling restores it.',
+            scheme: 'Colors', scheme_light: 'Light', scheme_dark: 'Dark', scheme_stone: 'Stone', scheme_navy: 'Navy', schemeCustom: 'My colors', schemePick: 'Pick with UniPalette', schemePickTitle: 'Pick app colors', schemeDarkBase: 'Dark background', schemeAdjusted: 'Text contrast was too low, so the text lightness was adjusted.',
+            shortcut: 'Shortcuts', help: 'Guide', language: 'Language',
             exampleTitle: 'Module example',
             exampleDesc: 'An example that calls <code>UniPalette.pick()</code>. An empty field is not passed and its default is used. With remember on, the last picked value replaces the default.',
             inputArgs: 'Input arguments', defaultWord: 'default',
@@ -95,7 +99,9 @@
         },
         ja: {
             docTitle: 'UniPalette - 知覚均等カラーパレット抽出',
-            shortcut: 'ショートカット', help: '説明書', dark: 'ダークモード', light: 'ライトモード', language: '言語',
+            role_primary: 'テーマ色', role_sub1: 'サブテーマ色 1', role_sub2: 'サブテーマ色 2', role_sub3: 'サブテーマ色 3', role_highlight: 'ハイライト色', schemeRolesTitle: 'この配色の役割', interfaceLabel: 'ボタン・UI 色', interfaceBadge: 'UI', sub1Short: 'サブ 1', sub2Short: 'サブ 2', sub3Short: 'サブ 3', schemeHint: '互いに離れた 5 色以上を選ぶと、最初の色がテーマ色、最も遠い色がハイライト色、残りがテーマ色に近い順にサブテーマ色 1・2・3 になります。選んでいる間は画面にすぐ反映され、キャンセルすると元に戻ります。',
+            scheme: '配色', scheme_light: 'ライト', scheme_dark: 'ダーク', scheme_stone: 'ストーン', scheme_navy: 'ネイビー', schemeCustom: 'マイ配色', schemePick: 'UniPalette で選ぶ', schemePickTitle: '配色を選ぶ', schemeDarkBase: '暗い背景', schemeAdjusted: '文字のコントラストが足りないため、文字の明度を調整しました。',
+            shortcut: 'ショートカット', help: '説明書', language: '言語',
             exampleTitle: 'モジュールの例',
             exampleDesc: '<code>UniPalette.pick()</code> を呼び出す例です。空欄の引数は渡さず default を使います。remember がオンなら、最後に選んだ値が default の代わりになります。',
             inputArgs: 'Input arguments', defaultWord: 'default',
@@ -137,7 +143,9 @@
         },
         zh: {
             docTitle: 'UniPalette - 感知均匀调色板提取器',
-            shortcut: '快捷键', help: '说明', dark: '深色模式', light: '浅色模式', language: '语言',
+            role_primary: '主题色', role_sub1: '副主题色 1', role_sub2: '副主题色 2', role_sub3: '副主题色 3', role_highlight: '高亮色', schemeRolesTitle: '此配色的角色', interfaceLabel: '按钮与界面色', interfaceBadge: '界面', sub1Short: '副 1', sub2Short: '副 2', sub3Short: '副 3', schemeHint: '选择 5 种以上相距较远的颜色:第一种成为主题色,最远的成为高亮色,其余按与主题色由近到远成为副主题色 1、2、3。选择时页面实时更新,取消则恢复。',
+            scheme: '配色', scheme_light: '浅色', scheme_dark: '深色', scheme_stone: '石色', scheme_navy: '藏青', schemeCustom: '我的配色', schemePick: '用 UniPalette 选择', schemePickTitle: '选择配色', schemeDarkBase: '深色背景', schemeAdjusted: '文字对比度不足,已调整文字明度。',
+            shortcut: '快捷键', help: '说明', language: '语言',
             exampleTitle: '模块示例',
             exampleDesc: '调用 <code>UniPalette.pick()</code> 的示例。留空的参数不会传入,使用 default。开启 remember 时,上次选择的值会代替 default。',
             inputArgs: 'Input arguments', defaultWord: 'default',

@@ -1,11 +1,13 @@
 /**
  * @fileoverview UniPalette 견본 화면 — UniPalette 모듈(unipalette.js)을 부르는 예제 앱
  * - Input arguments 목록 → UniPalette.pick(인자) → 돌려받은 색 배열을 칩과 코드로 보여 준다
- * - 화면 언어(i18n.js), 다크모드 기억, 설명서·단축키 창, 새 판 알림, 오류 경계
+ * - 화면 언어(i18n.js), 배색(scheme.js, UniPalette로 고른 색으로 이 화면의 배색 바꾸기), 설명서·단축키 창,
+ *   새 판 알림, 오류 경계
  */
 
 // 버전 정보는 version.js(SEMVER, CACHE_BUST_TAG, DISPLAY_VERSION)를 단일 원본으로 참조
-const APP_SETTINGS_KEY = 'unipalette_app_settings_v1';
+const APP_SETTINGS_KEY = 'unipalette_app_settings_v2';
+const OLD_APP_SETTINGS_KEY = 'unipalette_app_settings_v1';   // v1: { dark, lang }
 const UPDATE_DISMISSED_KEY = 'unipalette_update_dismissed_v1';
 const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const HOSTED_BASE_URL = 'https://iseohyun.github.io/UniPalette/';
@@ -14,7 +16,10 @@ const ARG_INPUT_IDS = ['optBase', 'optCount', 'optSteps', 'optMethod', 'optLight
 
 let toastTimeoutId = null;
 let lastResult = null;
-let appSettings = { dark: false, lang: '' };
+// scheme: 'light' | 'dark' | 'stone' | 'navy' | 'custom', custom: { palette, darkBase } (고른 팔레트를 그대로 둔다),
+// interfaceRole: 단추에 쓸 서브 테마색 'sub1' | 'sub2' | 'sub3'
+let appSettings = { scheme: 'light', custom: null, interfaceRole: 'sub1', lang: '' };
+let schemeIsDark = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     try {
@@ -25,8 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initApp() {
-    if (typeof UniPalette === 'undefined' || typeof I18n === 'undefined') {
-        throw new Error('unipalette.js / i18n.js could not be loaded.');
+    if (typeof UniPalette === 'undefined' || typeof I18n === 'undefined' || typeof Scheme === 'undefined') {
+        throw new Error('unipalette.js / i18n.js / scheme.js could not be loaded.');
     }
     const versionEl = document.getElementById('appVersion');
     if (versionEl && typeof DISPLAY_VERSION !== 'undefined') {
@@ -35,7 +40,7 @@ function initApp() {
 
     appSettings = loadAppSettings();
     initHeaderModalButtons();
-    initDarkMode();
+    initSchemePanel();
     initDemoForm();
     initLanguage();
     initUpdateNotice();
@@ -72,18 +77,32 @@ function renderErrorBoundary(err) {
     main.appendChild(box);
 }
 
-/* ---------- 앱 설정(다크모드, 언어) 기억 ---------- */
+/* ---------- 앱 설정(배색, 언어) 기억 ---------- */
+
+function isValidPalette(palette) {
+    const flat = Array.isArray(palette) ? palette.flat() : [];
+    return flat.length > 0 && flat.every(hex => typeof hex === 'string' && /^#[0-9A-F]{6}$/i.test(hex));
+}
 
 function loadAppSettings() {
+    const fallback = { scheme: 'light', custom: null, interfaceRole: 'sub1', lang: '' };
     try {
-        const parsed = JSON.parse(localStorage.getItem(APP_SETTINGS_KEY) || '{}') || {};
-        return {
-            dark: parsed.dark === true,
-            lang: I18n.supported.includes(parsed.lang) ? parsed.lang : ''
-        };
+        let parsed = JSON.parse(localStorage.getItem(APP_SETTINGS_KEY) || 'null');
+        if (!parsed) {
+            // 앞 판(v1)의 다크모드 값을 배색으로 이어받는다
+            const old = JSON.parse(localStorage.getItem(OLD_APP_SETTINGS_KEY) || '{}') || {};
+            parsed = { scheme: old.dark === true ? 'dark' : 'light', lang: old.lang };
+        }
+        const custom = parsed.custom && isValidPalette(parsed.custom.palette)
+            ? { palette: parsed.custom.palette, darkBase: parsed.custom.darkBase === true }
+            : null;
+        let scheme = Scheme.PRESET_IDS.includes(parsed.scheme) || parsed.scheme === 'custom' ? parsed.scheme : 'light';
+        if (scheme === 'custom' && !custom) scheme = 'light';
+        const interfaceRole = Scheme.INTERFACE_CHOICES.includes(parsed.interfaceRole) ? parsed.interfaceRole : 'sub1';
+        return { scheme, custom, interfaceRole, lang: I18n.supported.includes(parsed.lang) ? parsed.lang : '' };
     } catch (err) {
         console.warn('Could not read app settings; using defaults.', err);
-        return { dark: false, lang: '' };
+        return fallback;
     }
 }
 
@@ -95,19 +114,176 @@ function saveAppSettings() {
     }
 }
 
-function updateDarkButton() {
-    const btn = document.getElementById('btnToggleDark');
-    if (btn) btn.textContent = I18n.t(appSettings.dark ? 'light' : 'dark');
+/* ---------- 배색 패널 ---------- */
+
+let currentScheme = null;   // 지금 적용된 배색(Scheme.presetColors / fromPalette의 결과)
+
+function roleNames() {
+    const names = {};
+    Scheme.ROLES.forEach(role => { names[role] = I18n.t('role_' + role); });
+    return names;
 }
 
-function initDarkMode() {
-    document.body.classList.toggle('preview-dark', appSettings.dark);
-    document.getElementById('btnToggleDark').addEventListener('click', () => {
-        appSettings.dark = !appSettings.dark;
-        document.body.classList.toggle('preview-dark', appSettings.dark);
-        updateDarkButton();
-        saveAppSettings();
+function buildScheme(id) {
+    return id === 'custom'
+        ? Scheme.fromPalette(appSettings.custom.palette, appSettings.custom.darkBase, appSettings.interfaceRole)
+        : Scheme.presetColors(id, appSettings.interfaceRole);
+}
+
+/** 지금 설정의 배색을 계산해 화면에 적용한다. 대비를 고쳤으면 true */
+function applyCurrentScheme() {
+    currentScheme = buildScheme(appSettings.scheme);
+    schemeIsDark = Scheme.apply(currentScheme.colors);
+    renderSchemePanel();
+    return currentScheme.adjusted;
+}
+
+function schemeTile(id, built, label) {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'scheme-tile';
+    tile.dataset.scheme = id;
+    tile.setAttribute('aria-pressed', String(appSettings.scheme === id));
+    const swatch = document.createElement('span');
+    swatch.className = 'scheme-swatch';
+    swatch.style.background = built.colors.bg;
+    swatch.style.borderColor = built.colors.border;
+    Scheme.ROLES.forEach(role => {
+        const dot = document.createElement('span');
+        dot.style.background = built.roles[role];
+        swatch.appendChild(dot);
     });
+    const name = document.createElement('span');
+    name.textContent = label;
+    tile.append(swatch, name);
+    return tile;
+}
+
+/** 패널 아래의 「이 배색의 역할」: 역할마다 원래 색과 이름, 인터페이스로 쓰는 서브에 표시 */
+function renderSchemeRoles(built) {
+    const list = document.getElementById('schemeRoles');
+    const names = roleNames();
+    const frag = document.createDocumentFragment();
+    Scheme.ROLES.forEach(role => {
+        const hex = built.roles[role];
+        const item = document.createElement('li');
+        const chip = document.createElement('span');
+        chip.className = 'scheme-role-chip';
+        chip.style.background = hex;
+        const name = document.createElement('span');
+        name.textContent = names[role];
+        if (role === built.interfaceRole) {
+            const badge = document.createElement('em');
+            badge.className = 'scheme-role-badge';
+            badge.textContent = I18n.t('interfaceBadge');
+            name.append(' ', badge);
+        }
+        const code = document.createElement('code');
+        code.textContent = hex;
+        item.append(chip, name, code);
+        frag.appendChild(item);
+    });
+    list.replaceChildren(frag);
+}
+
+function renderSchemePanel() {
+    const box = document.getElementById('schemePresets');
+    if (!box || !currentScheme) return;
+    const frag = document.createDocumentFragment();
+    Scheme.PRESET_IDS.forEach(id => frag.appendChild(schemeTile(id, buildScheme(id), I18n.t('scheme_' + id))));
+    if (appSettings.custom) frag.appendChild(schemeTile('custom', buildScheme('custom'), I18n.t('schemeCustom')));
+    box.replaceChildren(frag);
+    renderSchemeRoles(currentScheme);
+    document.getElementById('schemeDarkBase').checked = appSettings.custom ? appSettings.custom.darkBase : false;
+    document.querySelectorAll('input[name="schemeInterface"]').forEach(radio => {
+        radio.checked = radio.value === appSettings.interfaceRole;
+    });
+}
+
+function setSchemePanelOpen(open) {
+    const panel = document.getElementById('schemePanel');
+    // 좁은 화면에서는 패널을 화면 폭에 맞춰 띄우므로, 단추 바로 아래에 오도록 높이를 잰다
+    panel.style.top = open && window.matchMedia('(max-width: 560px)').matches
+        ? `${document.getElementById('btnScheme').getBoundingClientRect().bottom + 6}px` : '';
+    panel.hidden = !open;
+    document.getElementById('btnScheme').setAttribute('aria-expanded', String(open));
+}
+
+function chooseScheme(id) {
+    appSettings.scheme = id;
+    const adjusted = applyCurrentScheme();
+    saveAppSettings();
+    if (adjusted) showToast(I18n.t('schemeAdjusted'));
+}
+
+/**
+ * UniPalette 간단 보기로 「내 배색」을 고른다.
+ * 대화상자에서 기준 색을 끌거나 값을 바꿀 때마다 onChange로 이 화면에 바로 적용하고,
+ * 칩 아래에는 그 색의 역할 이름을 붙인다. 취소하면 원래 배색으로 되돌린다.
+ */
+function pickCustomScheme() {
+    setSchemePanelOpen(false);
+    const darkBase = document.getElementById('schemeDarkBase').checked;
+    const names = roleNames();
+    const options = Object.assign({}, Scheme.PICK_OPTIONS, {
+        title: I18n.t('schemePickTitle'),
+        lang: I18n.lang,
+        theme: darkBase ? 'dark' : 'light',
+        labels: (n, hexes) => Scheme.roleLabels(hexes, names),
+        onChange: palette => {
+            Scheme.apply(Scheme.fromPalette(palette, darkBase, appSettings.interfaceRole).colors);
+        }
+    });
+    if (appSettings.custom) options.base = Scheme.fromPalette(appSettings.custom.palette).roles.primary;
+    UniPalette.pick(options)
+        .then(palette => {
+            if (palette === null) {
+                applyCurrentScheme();   // 미리보기를 거두고 원래 배색으로
+                return;
+            }
+            appSettings.custom = { palette, darkBase };
+            chooseScheme('custom');
+        })
+        .catch(err => {
+            applyCurrentScheme();
+            console.error('UniPalette example: could not pick a scheme.', err);
+            showToast(err && err.message ? err.message : I18n.t('openFailed'));
+        });
+}
+
+function initSchemePanel() {
+    const btn = document.getElementById('btnScheme');
+    const panel = document.getElementById('schemePanel');
+    btn.addEventListener('click', () => setSchemePanelOpen(panel.hidden));
+    document.getElementById('schemePresets').addEventListener('click', e => {
+        const tile = e.target.closest('[data-scheme]');
+        if (tile) chooseScheme(tile.dataset.scheme);
+    });
+    document.getElementById('btnSchemePick').addEventListener('click', pickCustomScheme);
+    // 인터페이스색: 서브 1·2·3 중 무엇을 단추에 쓸지 바로 바꿔 보며 고른다
+    document.querySelectorAll('input[name="schemeInterface"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (!radio.checked) return;
+            appSettings.interfaceRole = radio.value;
+            chooseScheme(appSettings.scheme);
+        });
+    });
+    // 「어두운 바탕」: 내 배색이 있으면 바로 다시 계산하고, 없으면 다음에 고를 때 쓴다
+    document.getElementById('schemeDarkBase').addEventListener('change', e => {
+        if (!appSettings.custom) return;
+        appSettings.custom.darkBase = e.target.checked;
+        chooseScheme('custom');
+    });
+    document.addEventListener('pointerdown', e => {
+        if (!panel.hidden && !panel.contains(e.target) && !btn.contains(e.target)) setSchemePanelOpen(false);
+    });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !panel.hidden) {
+            setSchemePanelOpen(false);
+            btn.focus();
+        }
+    });
+    applyCurrentScheme();
 }
 
 /* ---------- 언어 ---------- */
@@ -132,7 +308,7 @@ function initLanguage() {
 /** 화면 글자를 바꾸고, 사전에서 오지 않는 글자(목록, 자리 표시, 코드)를 다시 만든다 */
 function applyLanguage(code) {
     I18n.setLang(code);
-    updateDarkButton();
+    renderSchemePanel();
     fillMethodOptions();
     fillLangOptions();
     fillDefaultPlaceholders();
@@ -218,6 +394,7 @@ function initDemoForm() {
     document.addEventListener('keydown', e => {
         if (e.ctrlKey || e.altKey || e.metaKey || UniPalette.isOpen) return;
         if (document.getElementById('commonModal').classList.contains('show')) return;
+        if (!document.getElementById('schemePanel').hidden) return;
         const tgt = e.target;
         if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'SELECT' || tgt.tagName === 'TEXTAREA')) return;
         if (e.key === 'p' || e.key === 'P') {
@@ -240,7 +417,7 @@ function collectOptions(includePageDefaults) {
     if (value('optMethod')) opts.method = value('optMethod');
     if (value('optShape') !== 'auto') opts.shape = value('optShape');
     if (value('optTheme')) opts.theme = value('optTheme');
-    else if (includePageDefaults) opts.theme = appSettings.dark ? 'dark' : 'light';
+    else if (includePageDefaults) opts.theme = schemeIsDark ? 'dark' : 'light';
     if (value('optLang')) opts.lang = value('optLang');
     else if (includePageDefaults) opts.lang = I18n.lang;
     if (value('optTitle')) opts.title = value('optTitle');

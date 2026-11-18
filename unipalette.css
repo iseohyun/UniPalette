@@ -578,3 +578,71 @@
     transition: none !important;
   }
 }
+
+/* 간단히 · 자세히 */
+.up-view-btn {
+  margin-left: auto;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--up-border);
+  background: var(--up-bg);
+  color: var(--up-text);
+  cursor: pointer;
+}
+.up-view-btn:hover {
+  background: var(--up-border);
+}
+
+/* 간단 보기: 오른쪽 아래에 작게 떠서 뒤의 화면이 실시간으로 바뀌는 것을 볼 수 있게 한다 */
+.up-dialog.up-simple {
+  width: min(440px, calc(100vw - 32px));
+  margin: auto 16px 16px auto;
+}
+.up-dialog.up-simple::backdrop {
+  background: transparent;
+  backdrop-filter: none;
+}
+.up-simple .up-full-only {
+  display: none;
+}
+.up-simple .up-body {
+  gap: 10px;
+  padding: 12px 14px;
+}
+.up-simple .up-map {
+  height: 120px;
+}
+.up-simple .up-card {
+  padding: 10px;
+}
+.up-simple .up-field-wide {
+  grid-column: 1 / -1;
+}
+
+/* 칩 아래 이름(labels) */
+.up-strip-labeled .up-chip {
+  min-height: 52px;
+  justify-content: flex-start;
+  padding-top: 6px;
+}
+.up-chip-label {
+  margin-top: auto;
+  width: 100%;
+  padding: 2px 2px 3px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--up-text);
+  background: var(--up-bg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .up-dialog.up-simple {
+    margin: auto auto 8px;
+  }
+}
