@@ -1,8 +1,8 @@
 /**
- * @fileoverview UniPalette 전역 키보드 단축키 감지 및 사용자 정의 매핑 관리 모듈
- * - 추출 개수 증감, 명암 단계 증감 단축키 커스터마이징 (LocalStorage 영속화)
+ * @fileoverview UniPalette 단축키 바꾸기 화면과 저장 (실행은 unipalette.js의 대화상자)
+ * - 바꾼 단축키는 unipalette_shortcuts에 저장하고, UniPalette 대화상자가 열릴 때 읽어 쓴다
  * - 모달 편집 시 임시 상태(draftShortcuts) 분리로 '저장' 전 취소 안전성 보장
- * - 알고리즘([a]~[f]) 및 고정 프리셋([x]~[z]) 즉시 전환 단축키 지원
+ * - 알고리즘([a]~[f])·프리셋([x]~[z]) 전환 키는 고정이며 unipalette.js의 METHODS에 있다
  */
 
 const DEFAULT_SHORTCUTS = {
@@ -26,19 +26,6 @@ const DEFAULT_SHORTCUTS = {
         primary: "/",
         secondary: "PageDown"
     }
-};
-
-// 알고리즘 및 고정 프리셋 고정 단축키 통합 매핑
-const SHORTCUT_METHOD_MAP = {
-    a: 'linear',
-    b: 'hslAdapt',
-    c: 'macadam',
-    d: 'hslMacadam',
-    e: 'oklab',
-    f: 'ciede',
-    x: 'ppt',
-    y: 'rainbow',
-    z: 'google'
 };
 
 let activeShortcuts = {};
@@ -129,91 +116,8 @@ function setupGlobalShortcuts() {
             return;
         }
 
-        // 2. 일반 단축키 실행 감지 (입력 폼 포커스 또는 Ctrl/Alt/Meta 조합키 무시)
-        if (e.ctrlKey || e.altKey || e.metaKey) return;
-
-        const activeEl = document.activeElement;
-        const isInput = activeEl && (
-            activeEl.tagName === 'INPUT' ||
-            activeEl.tagName === 'SELECT' ||
-            activeEl.tagName === 'TEXTAREA'
-        );
-
-        if (isInput && !activeEl.readOnly) {
-            return;
-        }
-
-        let key = e.key === "=" ? "+" : e.key;
-
-        if (key === activeShortcuts.increaseCount.primary || key === activeShortcuts.increaseCount.secondary) {
-            e.preventDefault();
-            adjustExtractCount(1);
-            return;
-        }
-        if (key === activeShortcuts.decreaseCount.primary || key === activeShortcuts.decreaseCount.secondary) {
-            e.preventDefault();
-            adjustExtractCount(-1);
-            return;
-        }
-        if (key === activeShortcuts.increaseLightSteps.primary || key === activeShortcuts.increaseLightSteps.secondary) {
-            e.preventDefault();
-            adjustLightSteps(1);
-            return;
-        }
-        if (key === activeShortcuts.decreaseLightSteps.primary || key === activeShortcuts.decreaseLightSteps.secondary) {
-            e.preventDefault();
-            adjustLightSteps(-1);
-            return;
-        }
-
-        // 추출 방법([a]~[f]) 및 고정 프리셋([x]~[z]) 단축키 통합 처리
-        const targetMethod = SHORTCUT_METHOD_MAP[key.toLowerCase()];
-        if (targetMethod) {
-            const methodSelect = document.getElementById('extractMethod');
-            if (methodSelect) {
-                e.preventDefault();
-                methodSelect.value = targetMethod;
-                if (typeof handleMethodChange === 'function') {
-                    handleMethodChange(targetMethod);
-                }
-                if (typeof generatePalette === 'function') {
-                    generatePalette();
-                }
-            }
-        }
+        // 2. 단축키 실행은 UniPalette 모듈의 대화상자가 맡는다(unipalette.js). 여기서는 바꾸기 화면만 다룬다.
     });
-}
-
-function adjustExtractCount(offset) {
-    const countInput = document.getElementById('extractCount');
-    if (!countInput || countInput.disabled) return;
-
-    const val = (parseInt(countInput.value, 10) || 8) + offset;
-    const min = parseInt(countInput.min, 10) || 2;
-    const max = parseInt(countInput.max, 10) || 36;
-
-    if (val >= min && val <= max) {
-        countInput.value = val;
-        if (typeof generatePalette === 'function') {
-            generatePalette();
-        }
-    }
-}
-
-function adjustLightSteps(offset) {
-    const stepsInput = document.getElementById('lightSteps');
-    if (!stepsInput || stepsInput.disabled) return;
-
-    const val = (parseInt(stepsInput.value, 10) || 1) + offset;
-    const min = parseInt(stepsInput.min, 10) || 1;
-    const max = parseInt(stepsInput.max, 10) || 10;
-
-    if (val >= min && val <= max) {
-        stepsInput.value = val;
-        if (typeof generatePalette === 'function') {
-            generatePalette();
-        }
-    }
 }
 
 /**
@@ -225,7 +129,7 @@ function cancelRecording() {
     const source = draftShortcuts || activeShortcuts;
     const btn = document.getElementById(`key-${action}-${slot}`);
     if (btn) {
-        btn.innerText = source[action][slot] || 'None';
+        btn.innerText = source[action][slot] || I18n.t('none');
         btn.classList.remove('recording');
     }
     recordingSlot = null;
@@ -242,7 +146,7 @@ function initShortcutSettingsUI() {
         ['primary', 'secondary'].forEach(slot => {
             const btn = document.getElementById(`key-${action}-${slot}`);
             if (btn) {
-                btn.innerText = draftShortcuts[action][slot] || 'None';
+                btn.innerText = draftShortcuts[action][slot] || I18n.t('none');
 
                 btn.addEventListener('click', () => {
                     if (recordingSlot) {
@@ -250,7 +154,7 @@ function initShortcutSettingsUI() {
                     }
 
                     recordingSlot = { action, slot };
-                    btn.innerText = '키를 입력하세요...';
+                    btn.innerText = I18n.t('pressKey');
                     btn.classList.add('recording');
                     btn.focus();
                 });
@@ -268,7 +172,7 @@ function initShortcutSettingsUI() {
             draftShortcuts = null;
             saveShortcuts();
             if (typeof showToast === 'function') {
-                showToast('단축키 설정이 저장되었습니다.');
+                showToast(I18n.t('scSaved'));
             }
             if (typeof closeModal === 'function') {
                 closeModal();

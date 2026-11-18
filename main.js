@@ -1,542 +1,437 @@
 /**
- * @fileoverview UniPalette 메인 UI 컨트롤러 및 상태/이벤트 관리 모듈
- * - 2D HSV 컬러 피커, 더블 레인지 슬라이더, H-L 컬러 맵 캔버스 및 마커 드래그 제어
- * - 팔레트 카드 및 인접 대비 스트립 렌더링, 클립보드 내보내기, 모달 로더(file:// 폴백 지원)
+ * @fileoverview UniPalette 견본 화면 — UniPalette 모듈(unipalette.js)을 부르는 예제 앱
+ * - Input arguments 목록 → UniPalette.pick(인자) → 돌려받은 색 배열을 칩과 코드로 보여 준다
+ * - 화면 언어(i18n.js), 다크모드 기억, 설명서·단축키 창, 새 판 알림, 오류 경계
  */
 
-// 버전 정보는 version.js(SEMVER, CACHE_BUST_TAG, DISPLAY_VERSION)를 단일 진실 공급원(SSOT)으로 참조
+// 버전 정보는 version.js(SEMVER, CACHE_BUST_TAG, DISPLAY_VERSION)를 단일 원본으로 참조
+const APP_SETTINGS_KEY = 'unipalette_app_settings_v1';
+const UPDATE_DISMISSED_KEY = 'unipalette_update_dismissed_v1';
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const HOSTED_BASE_URL = 'https://iseohyun.github.io/UniPalette/';
+const ARG_INPUT_IDS = ['optBase', 'optCount', 'optSteps', 'optMethod', 'optLightMin', 'optLightMax',
+    'optShape', 'optTheme', 'optLang', 'optTitle', 'optRemember'];
 
-// 고정 프리셋 규격 단일 진실 공급원(SSOT)
-const PRESET_CONFIG = {
-    ppt:     { count: 7,  defaultSteps: 1, fixedCount: true, fixedSteps: true },
-    rainbow: { count: 10, defaultSteps: 1, fixedCount: true, fixedSteps: true },
-    google:  { count: 8,  defaultSteps: 3, fixedCount: true, fixedSteps: false, maxSteps: 3 }
-};
-
-let currentExtractedColors = [];
-let isDragging = false;
-let isColorMapRendered = false;
 let toastTimeoutId = null;
-let lastUserLightSteps = 1;
-let previousMethod = 'linear';
+let lastResult = null;
+let appSettings = { dark: false, lang: '' };
 
 document.addEventListener('DOMContentLoaded', () => {
-    const versionEl = document.getElementById('appVersion');
-    if (versionEl && typeof DISPLAY_VERSION !== 'undefined') {
-        versionEl.innerText = DISPLAY_VERSION;
+    try {
+        initApp();
+    } catch (err) {
+        renderErrorBoundary(err);
     }
-
-    const baseColor = document.getElementById('baseColor');
-    const extractCount = document.getElementById('extractCount');
-    const lightSteps = document.getElementById('lightSteps');
-    const extractMethod = document.getElementById('extractMethod');
-    const btnToggleDark = document.getElementById('btnToggleDark');
-
-    if (lightSteps) {
-        lastUserLightSteps = parseInt(lightSteps.value, 10) || 1;
-    }
-    if (extractMethod) {
-        previousMethod = extractMethod.value;
-    }
-
-    initColorPicker();
-    initDoubleSlider();
-    initDragAndDrop();
-    initExportButton();
-    initHeaderModalButtons();
-
-    if (btnToggleDark) {
-        btnToggleDark.addEventListener('click', () => {
-            const isDark = document.body.classList.toggle('preview-dark');
-            btnToggleDark.innerText = isDark ? '라이트모드' : '다크모드';
-        });
-    }
-
-    if (extractCount) {
-        extractCount.addEventListener('input', generatePalette);
-        extractCount.addEventListener('change', generatePalette);
-    }
-
-    if (lightSteps) {
-        const onStepsChange = () => {
-            const method = extractMethod ? extractMethod.value : 'linear';
-            if (!PRESET_CONFIG[method]) {
-                lastUserLightSteps = Math.max(1, parseInt(lightSteps.value, 10) || 1);
-            }
-            generatePalette();
-        };
-        lightSteps.addEventListener('input', onStepsChange);
-        lightSteps.addEventListener('change', onStepsChange);
-    }
-
-    if (extractMethod) {
-        const onMethodChange = () => {
-            handleMethodChange(extractMethod.value);
-            generatePalette();
-        };
-        extractMethod.addEventListener('input', onMethodChange);
-        extractMethod.addEventListener('change', onMethodChange);
-    }
-
-    if (baseColor) {
-        updateBaseColorInputStyle(baseColor.value);
-    }
-    generatePalette();
 });
 
-/**
- * 헤더 모달(단축키, 설명서) 버튼 및 오버레이 닫기 이벤트를 바인딩합니다.
- */
-function initHeaderModalButtons() {
-    const btnShortcut = document.getElementById('btnShortcut');
-    const btnHelp = document.getElementById('btnHelp');
-    const modalOverlay = document.getElementById('commonModal');
-    const modalContent = document.getElementById('modalContent');
-
-    if (btnShortcut) {
-        btnShortcut.addEventListener('click', () => {
-            openModal('shortcut.html', 'tmpl-shortcut', () => {
-                if (typeof initShortcutSettingsUI === 'function') {
-                    initShortcutSettingsUI();
-                }
-            });
-        });
+function initApp() {
+    if (typeof UniPalette === 'undefined' || typeof I18n === 'undefined') {
+        throw new Error('unipalette.js / i18n.js could not be loaded.');
+    }
+    const versionEl = document.getElementById('appVersion');
+    if (versionEl && typeof DISPLAY_VERSION !== 'undefined') {
+        versionEl.textContent = DISPLAY_VERSION;
     }
 
-    if (btnHelp) {
-        btnHelp.addEventListener('click', () => {
-            openModal('help.html', 'tmpl-help');
-        });
-    }
+    appSettings = loadAppSettings();
+    initHeaderModalButtons();
+    initDarkMode();
+    initDemoForm();
+    initLanguage();
+    initUpdateNotice();
+}
 
-    if (modalOverlay) {
-        modalOverlay.addEventListener('click', (e) => {
-            if (e.target === modalOverlay) {
-                closeModal();
-            }
-        });
-    }
+/* ---------- 오류 경계 ---------- */
 
-    // 모달 내부 닫기 버튼 이벤트 위임 (인라인 onclick 의존성 완화)
-    if (modalContent) {
-        modalContent.addEventListener('click', (e) => {
-            if (e.target.closest('.modal-close-btn')) {
-                closeModal();
-            }
-        });
+function renderErrorBoundary(err) {
+    console.error('UniPalette example: failed to render.', err);
+    const main = document.getElementById('appMain');
+    if (!main) return;
+    const tr = (key, fallback) => (typeof I18n !== 'undefined' ? I18n.t(key) : fallback);
+    main.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'error-boundary';
+    const title = document.createElement('strong');
+    title.textContent = tr('errorTitle', 'Something went wrong');
+    const detail = document.createElement('code');
+    detail.textContent = err && err.message ? err.message : String(err);
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'header-btn';
+    retry.textContent = tr('retry', 'Try again');
+    retry.addEventListener('click', () => {
+        try { localStorage.removeItem(APP_SETTINGS_KEY); } catch (e) { console.warn(e); }
+        location.reload();
+    });
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.className = 'primary-btn';
+    reload.textContent = tr('reload', 'Reload');
+    reload.addEventListener('click', () => location.reload());
+    box.append(title, detail, retry, reload);
+    main.appendChild(box);
+}
+
+/* ---------- 앱 설정(다크모드, 언어) 기억 ---------- */
+
+function loadAppSettings() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(APP_SETTINGS_KEY) || '{}') || {};
+        return {
+            dark: parsed.dark === true,
+            lang: I18n.supported.includes(parsed.lang) ? parsed.lang : ''
+        };
+    } catch (err) {
+        console.warn('Could not read app settings; using defaults.', err);
+        return { dark: false, lang: '' };
     }
 }
 
-/**
- * 외부 HTML 조각을 로드하여 모달을 표시하며, file:// 환경 등 CORS 실패 시 내장 <template>으로 폴백합니다.
- * @param {string} url - 로드할 HTML 파일 경로
- * @param {string} fallbackTemplateId - CORS 실패 시 사용할 <template> 요소 ID
- * @param {Function} [callback] - 마운트 완료 후 실행할 콜백
- */
-function openModal(url, fallbackTemplateId, callback) {
-    const modalContent = document.getElementById('modalContent');
-    const modalOverlay = document.getElementById('commonModal');
-    if (!modalContent || !modalOverlay) return;
-
-    const mountHtml = (html) => {
-        modalContent.innerHTML = html;
-        modalOverlay.classList.add('show');
-        if (callback) callback();
-    };
-
-    const tryFallbackTemplate = () => {
-        const tmpl = fallbackTemplateId ? document.getElementById(fallbackTemplateId) : null;
-        if (tmpl && tmpl.innerHTML.trim()) {
-            mountHtml(tmpl.innerHTML);
-            return true;
-        }
-        return false;
-    };
-
-    // file:// 프로토콜에서는 브라우저가 fetch를 차단하므로 즉시 내장 템플릿 우선 사용
-    if (window.location.protocol === 'file:' && tryFallbackTemplate()) {
-        return;
+function saveAppSettings() {
+    try {
+        localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(appSettings));
+    } catch (err) {
+        console.warn('Could not save app settings.', err);
     }
+}
 
-    const bustQuery = (typeof CACHE_BUST_TAG !== 'undefined') ? `?v=${CACHE_BUST_TAG}` : '';
-    fetch(`${url}${bustQuery}`)
-        .then(response => {
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return response.text();
-        })
-        .then(html => {
-            mountHtml(html);
+function updateDarkButton() {
+    const btn = document.getElementById('btnToggleDark');
+    if (btn) btn.textContent = I18n.t(appSettings.dark ? 'light' : 'dark');
+}
+
+function initDarkMode() {
+    document.body.classList.toggle('preview-dark', appSettings.dark);
+    document.getElementById('btnToggleDark').addEventListener('click', () => {
+        appSettings.dark = !appSettings.dark;
+        document.body.classList.toggle('preview-dark', appSettings.dark);
+        updateDarkButton();
+        saveAppSettings();
+    });
+}
+
+/* ---------- 언어 ---------- */
+
+function initLanguage() {
+    const select = document.getElementById('langSelect');
+    UniPalette.languages.filter(l => I18n.supported.includes(l.code)).forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.code;
+        opt.textContent = l.name;
+        select.appendChild(opt);
+    });
+    select.value = appSettings.lang || UniPalette.resolveLang('auto');
+    select.addEventListener('change', () => {
+        appSettings.lang = select.value;
+        saveAppSettings();
+        applyLanguage(select.value);
+    });
+    applyLanguage(select.value);
+}
+
+/** 화면 글자를 바꾸고, 사전에서 오지 않는 글자(목록, 자리 표시, 코드)를 다시 만든다 */
+function applyLanguage(code) {
+    I18n.setLang(code);
+    updateDarkButton();
+    fillMethodOptions();
+    fillLangOptions();
+    fillDefaultPlaceholders();
+    renderCallCode();
+    renderUsageCode();
+    if (lastResult) renderResult(lastResult);
+    else document.getElementById('resultCode').textContent = I18n.t('notPicked');
+    const modal = document.getElementById('commonModal');
+    if (modal.classList.contains('show') && modal.dataset.kind) openModal(modal.dataset.kind);
+}
+
+function fillMethodOptions() {
+    const select = document.getElementById('optMethod');
+    const keep = select.value;
+    select.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.textContent = `${I18n.t('defaultWord')}: ${UniPalette.methodLabel(UniPalette.defaults.method, I18n.lang)}`;
+    select.appendChild(def);
+    UniPalette.methods.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = UniPalette.methodLabel(m.id, I18n.lang);
+        select.appendChild(opt);
+    });
+    select.value = keep;
+}
+
+function fillLangOptions() {
+    const select = document.getElementById('optLang');
+    const keep = select.value;
+    select.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.textContent = I18n.t('followPage');
+    select.appendChild(def);
+    [{ code: 'auto', name: 'auto' }].concat(UniPalette.languages).forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.code;
+        opt.textContent = l.code === 'auto' ? 'auto' : `${l.code} · ${l.name}`;
+        select.appendChild(opt);
+    });
+    select.value = keep;
+}
+
+function fillDefaultPlaceholders() {
+    document.querySelectorAll('.arg-list input[data-default]').forEach(input => {
+        input.placeholder = `${I18n.t('defaultWord')}: ${input.dataset.default}`;
+    });
+    document.getElementById('optTitle').placeholder = I18n.t('defaultWord');
+}
+
+/* ---------- 견본: input arguments → pick → 결과 ---------- */
+
+function initDemoForm() {
+    const baseText = document.getElementById('optBase');
+    const basePicker = document.getElementById('optBasePicker');
+    basePicker.addEventListener('input', () => {
+        baseText.value = basePicker.value.toUpperCase();
+        renderCallCode();
+    });
+    baseText.addEventListener('input', () => {
+        if (/^#[0-9A-F]{6}$/i.test(baseText.value)) basePicker.value = baseText.value.toLowerCase();
+    });
+    ARG_INPUT_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        el.addEventListener('input', renderCallCode);
+        el.addEventListener('change', renderCallCode);
+    });
+
+    const remember = document.getElementById('optRemember');
+    remember.addEventListener('change', () => {
+        document.getElementById('optRememberText').textContent = String(remember.checked);
+    });
+
+    document.getElementById('btnPick').addEventListener('click', openPicker);
+    document.getElementById('btnCopyResult').addEventListener('click', () => {
+        if (!lastResult) return;
+        copyTextWithFallback(`const colorPalette = ${JSON.stringify(lastResult, null, 2)};`, I18n.t('copied'));
+    });
+
+    // 견본 화면의 단축키: P로 대화상자 열기 (입력 중·조합키·창이 열린 동안은 받지 않음)
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey || e.altKey || e.metaKey || UniPalette.isOpen) return;
+        if (document.getElementById('commonModal').classList.contains('show')) return;
+        const tgt = e.target;
+        if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'SELECT' || tgt.tagName === 'TEXTAREA')) return;
+        if (e.key === 'p' || e.key === 'P') {
+            e.preventDefault();
+            openPicker();
+        }
+    });
+}
+
+/** 빈 칸은 넘기지 않는다. includePageDefaults면 화면을 따르는 테마·언어도 채운다 */
+function collectOptions(includePageDefaults) {
+    const opts = {};
+    const value = id => document.getElementById(id).value.trim();
+    const num = id => (value(id) === '' ? undefined : parseInt(value(id), 10));
+    if (value('optBase')) opts.base = value('optBase');
+    ['count', 'steps', 'lightMin', 'lightMax'].forEach(name => {
+        const n = num('opt' + name[0].toUpperCase() + name.slice(1));
+        if (n !== undefined && !Number.isNaN(n)) opts[name] = n;
+    });
+    if (value('optMethod')) opts.method = value('optMethod');
+    if (value('optShape') !== 'auto') opts.shape = value('optShape');
+    if (value('optTheme')) opts.theme = value('optTheme');
+    else if (includePageDefaults) opts.theme = appSettings.dark ? 'dark' : 'light';
+    if (value('optLang')) opts.lang = value('optLang');
+    else if (includePageDefaults) opts.lang = I18n.lang;
+    if (value('optTitle')) opts.title = value('optTitle');
+    if (!document.getElementById('optRemember').checked) opts.remember = false;
+    return opts;
+}
+
+function renderCallCode() {
+    const opts = collectOptions(false);
+    const arg = Object.keys(opts).length ? JSON.stringify(opts, null, 2) : '';
+    document.getElementById('callCode').textContent = `const colors = await UniPalette.pick(${arg});`;
+}
+
+function openPicker() {
+    UniPalette.pick(collectOptions(true))
+        .then(result => {
+            if (result === null) {
+                showToast(I18n.t('cancelled'));
+                return;
+            }
+            lastResult = result;
+            renderResult(result);
         })
         .catch(err => {
-            if (!tryFallbackTemplate()) {
-                console.error('모달 로드 에러:', err);
-                showToast('콘텐츠를 불러오는 데 실패했습니다.');
-            }
+            console.error('UniPalette example: could not open the dialog.', err);
+            showToast(err && err.message ? err.message : I18n.t('openFailed'));
         });
 }
 
-window.closeModal = function() {
+function renderResult(result) {
+    const chips = document.getElementById('resultChips');
+    const is2d = Array.isArray(result[0]);
+    const columns = is2d ? result : result.map(hex => [hex]);
+    const rows = Math.max(...columns.map(c => c.length));
+    chips.style.gridTemplateColumns = `repeat(${columns.length}, 1fr)`;
+    const frag = document.createDocumentFragment();
+    for (let j = 0; j < rows; j++) {
+        columns.forEach(column => {
+            const hex = column[j];
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'result-chip';
+            if (hex) {
+                chip.style.backgroundColor = hex;
+                chip.title = hex;
+                chip.setAttribute('aria-label', hex);
+                chip.addEventListener('click', () => copyTextWithFallback(hex, I18n.t('hexCopied', { hex })));
+            } else {
+                chip.disabled = true;
+            }
+            frag.appendChild(chip);
+        });
+    }
+    chips.replaceChildren(frag);
+    const note = is2d ? I18n.t('resultGrid', { c: columns.length, s: rows }) : I18n.t('resultFlat', { n: result.length });
+    document.getElementById('resultCode').textContent = `${note}\n${JSON.stringify(result, null, 2)}`;
+    document.getElementById('btnCopyResult').disabled = false;
+}
+
+function renderUsageCode() {
+    const tag = typeof CACHE_BUST_TAG !== 'undefined' ? `?v=${CACHE_BUST_TAG}` : '';
+    const code = [
+        `<!-- ${I18n.t('usageLoad')} -->`,
+        `<link rel="stylesheet" href="${HOSTED_BASE_URL}unipalette.css${tag}">`,
+        `<script src="${HOSTED_BASE_URL}version.js${tag}"></script>`,
+        `<script src="${HOSTED_BASE_URL}calcColor.js${tag}"></script>`,
+        `<script src="${HOSTED_BASE_URL}unipalette.js${tag}"></script>`,
+        '',
+        '<script>',
+        `  // ${I18n.t('usagePick')}`,
+        `  const colors = await UniPalette.pick({ base: '#3B82F6', count: 8, steps: 3, lang: '${I18n.lang}' });`,
+        `  // ${I18n.t('usageShape')}`,
+        '',
+        `  // ${I18n.t('usageExtract')}`,
+        "  const same = UniPalette.extract({ base: '#3B82F6', count: 8, steps: 3 });",
+        '</script>'
+    ].join('\n');
+    document.getElementById('usageCode').textContent = code;
+}
+
+/* ---------- 새 판 알림 ---------- */
+
+function initUpdateNotice() {
+    if (location.protocol === 'file:' || typeof CACHE_BUST_TAG === 'undefined') return;
+    const notice = document.getElementById('updateNotice');
+    let latestTag = null;
+
+    const check = () => {
+        fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' })
+            .then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.text();
+            })
+            .then(html => {
+                const match = html.match(/<meta\s+name="build"\s+content="([^"]+)"/);
+                if (!match || match[1] === CACHE_BUST_TAG) return;
+                let dismissed = null;
+                try { dismissed = localStorage.getItem(UPDATE_DISMISSED_KEY); } catch (err) { console.warn(err); }
+                if (dismissed === match[1]) return;
+                latestTag = match[1];
+                notice.hidden = false;
+            })
+            .catch(err => console.warn('Update check failed.', err));
+    };
+
+    document.getElementById('btnUpdateReload').addEventListener('click', () => location.reload());
+    document.getElementById('btnUpdateDismiss').addEventListener('click', () => {
+        notice.hidden = true;
+        try { if (latestTag) localStorage.setItem(UPDATE_DISMISSED_KEY, latestTag); } catch (err) { console.warn(err); }
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') check();
+    });
+    setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+    check();
+}
+
+/* ---------- 헤더의 설명서·단축키 창 ---------- */
+
+function initHeaderModalButtons() {
     const modalOverlay = document.getElementById('commonModal');
-    if (modalOverlay) {
-        modalOverlay.classList.remove('show');
-    }
-    if (typeof cancelRecording === 'function') {
-        cancelRecording();
-    }
+    const modalContent = document.getElementById('modalContent');
+    document.getElementById('btnShortcut').addEventListener('click', () => openModal('shortcut'));
+    document.getElementById('btnHelp').addEventListener('click', () => openModal('help'));
+    modalOverlay.addEventListener('click', e => {
+        if (e.target === modalOverlay) closeModal();
+    });
+    modalContent.addEventListener('click', e => {
+        if (e.target.closest('.modal-close-btn')) closeModal();
+    });
+}
+
+function modalHeader(titleKey) {
+    return `<div class="modal-header"><h2>${I18n.t(titleKey)}</h2>` +
+        `<button type="button" class="modal-close-btn" aria-label="${I18n.t('close')}">&times;</button></div>`;
+}
+
+function buildHelpHtml() {
+    const algo = (method, key) =>
+        `<div class="algorithm-card"><div class="algo-title">${UniPalette.methodLabel(method, I18n.lang)}</div>` +
+        `<div class="algo-desc">${I18n.t(key)}</div></div>`;
+    return modalHeader('helpTitle') +
+        '<div class="modal-body help-body"><div class="help-section">' +
+        `<h3>${I18n.t('helpMethods')}</h3>` +
+        algo('linear', 'helpLinear') + algo('hslAdapt', 'helpHslAdapt') + algo('macadam', 'helpMacadam') +
+        algo('hslMacadam', 'helpHslMacadam') + algo('oklab', 'helpOklab') + algo('ciede', 'helpCiede') +
+        '</div><div class="help-section help-section-gap">' +
+        `<h3>${I18n.t('helpPresets')}</h3><ul>` +
+        `<li>${I18n.t('helpPpt')}</li><li>${I18n.t('helpRainbow')}</li><li>${I18n.t('helpGoogle')}</li>` +
+        '</ul></div></div>';
+}
+
+function buildShortcutHtml() {
+    const rows = ['increaseCount', 'decreaseCount', 'increaseLightSteps', 'decreaseLightSteps'].map(action =>
+        `<tr><td class="action-label">${I18n.t('sc_' + action)}</td>` +
+        `<td><button type="button" class="key-slot-btn" id="key-${action}-primary"></button></td>` +
+        `<td><button type="button" class="key-slot-btn" id="key-${action}-secondary"></button></td></tr>`).join('');
+    return modalHeader('scTitle') +
+        '<div class="modal-body">' +
+        `<p class="modal-desc">${I18n.t('scDesc')}</p>` +
+        '<table class="shortcut-table"><thead><tr>' +
+        `<th>${I18n.t('scAction')}</th><th>${I18n.t('scPrimary')}</th><th>${I18n.t('scSecondary')}</th>` +
+        `</tr></thead><tbody>${rows}</tbody></table>` +
+        `<div class="shortcut-info-box"><strong>${I18n.t('scFixedTitle')}</strong><p>` +
+        `- ${I18n.t('scFixedMethods')}<br>- ${I18n.t('scFixedPresets')}<br>- ${I18n.t('scFixedDialog')}<br>- ${I18n.t('scFixedPage')}</p></div>` +
+        '<div class="modal-footer">' +
+        `<button type="button" class="modal-action-btn save" id="btnSaveShortcuts">${I18n.t('save')}</button>` +
+        `<button type="button" class="modal-action-btn reset" id="btnResetShortcuts">${I18n.t('reset')}</button>` +
+        '</div></div>';
+}
+
+/** kind: 'help' | 'shortcut'. 내용은 지금 언어로 만든다(파일을 불러오지 않으므로 file://에서도 같다) */
+function openModal(kind) {
+    const modalContent = document.getElementById('modalContent');
+    const modalOverlay = document.getElementById('commonModal');
+    if (typeof cancelRecording === 'function') cancelRecording();
+    modalContent.innerHTML = kind === 'shortcut' ? buildShortcutHtml() : buildHelpHtml();
+    modalOverlay.dataset.kind = kind;
+    modalOverlay.classList.add('show');
+    if (kind === 'shortcut' && typeof initShortcutSettingsUI === 'function') initShortcutSettingsUI();
+}
+
+window.closeModal = function () {
+    const modalOverlay = document.getElementById('commonModal');
+    modalOverlay.classList.remove('show');
+    delete modalOverlay.dataset.kind;
+    if (typeof cancelRecording === 'function') cancelRecording();
 };
 
-/**
- * 커스텀 2D HSV 컬러 피커의 채도-명도 캔버스를 렌더링합니다.
- * @param {number} hue - 현재 선택된 Hue 각도 (0~360)
- */
-function drawPickerCanvas(hue) {
-    const canvas = document.getElementById('pickerCanvas');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
+/* ---------- 복사와 알림 ---------- */
 
-    const gradH = ctx.createLinearGradient(0, 0, width, 0);
-    gradH.addColorStop(0, '#ffffff');
-    gradH.addColorStop(1, `hsl(${hue}, 100%, 50%)`);
-    ctx.fillStyle = gradH;
-    ctx.fillRect(0, 0, width, height);
-
-    const gradV = ctx.createLinearGradient(0, 0, 0, height);
-    gradV.addColorStop(0, 'rgba(0,0,0,0)');
-    gradV.addColorStop(1, '#000000');
-    ctx.fillStyle = gradV;
-    ctx.fillRect(0, 0, width, height);
-}
-
-/**
- * 커스텀 피커 캔버스 상의 마커 핀 위치를 동기화합니다.
- */
-function updatePickerMarker(s_hsv, v_hsv) {
-    const marker = document.getElementById('pickerMarker');
-    const canvas = document.getElementById('pickerCanvas');
-    if (!marker || !canvas) return;
-
-    const x = Math.round(s_hsv * canvas.width);
-    const y = Math.round((1 - v_hsv) * canvas.height);
-
-    marker.style.left = `${x}px`;
-    marker.style.top = `${y}px`;
-}
-
-/**
- * 기준 색상 입력창, 숨겨진 컬러 인풋, 피커 미리보기 칩 및 텍스트를 일괄 갱신합니다.
- * @param {string} hex - '#RRGGBB' 형식 문자열
- */
-function applyHexToBaseInputs(hex) {
-    const baseColorInput = document.getElementById('baseColor');
-    const hiddenPicker = document.getElementById('hiddenColorPicker');
-    const previewChip = document.getElementById('pickerPreview');
-    const hexText = document.getElementById('pickerHexText');
-
-    if (baseColorInput) {
-        baseColorInput.value = hex;
-        updateBaseColorInputStyle(hex);
-    }
-    if (hiddenPicker) {
-        hiddenPicker.value = hex;
-    }
-    if (previewChip) {
-        previewChip.style.backgroundColor = hex;
-    }
-    if (hexText) {
-        hexText.innerText = hex;
-    }
-}
-
-/**
- * 커스텀 2D HSV 컬러 피커 및 스포이드/OS 네이티브 피커를 초기화합니다.
- */
-function initColorPicker() {
-    const baseColorInput = document.getElementById('baseColor');
-    const customPicker = document.getElementById('customColorPicker');
-    const hiddenPicker = document.getElementById('hiddenColorPicker');
-
-    if (!baseColorInput || !customPicker || !hiddenPicker) return;
-
-    const canvas = document.getElementById('pickerCanvas');
-    const hueSlider = document.getElementById('pickerHue');
-    const btnDropper = document.getElementById('btnDropper');
-    const btnNative = document.getElementById('btnNativePicker');
-    const btnClose = document.getElementById('btnClosePicker');
-
-    let isMouseDown = false;
-
-    const selectColorFromCoord = (e) => {
-        if (!canvas || !hueSlider) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
-        const y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
-
-        const s_hsv = x / canvas.width;
-        const v_hsv = 1 - (y / canvas.height);
-
-        const hue = parseInt(hueSlider.value, 10) || 0;
-        const hsl = hsvToHsl(hue, s_hsv, v_hsv);
-        const hex = hslToHex(hsl.h, hsl.s, hsl.l);
-
-        applyHexToBaseInputs(hex);
-        updatePickerMarker(s_hsv, v_hsv);
-        generatePalette();
-    };
-
-    if (canvas) {
-        canvas.addEventListener('mousedown', (e) => {
-            isMouseDown = true;
-            selectColorFromCoord(e);
-        });
-        document.addEventListener('mousemove', (e) => {
-            if (isMouseDown) {
-                selectColorFromCoord(e);
-            }
-        });
-        document.addEventListener('mouseup', () => {
-            isMouseDown = false;
-        });
-    }
-
-    if (hueSlider) {
-        const onHueChange = () => {
-            const hue = parseInt(hueSlider.value, 10) || 0;
-            drawPickerCanvas(hue);
-
-            const marker = document.getElementById('pickerMarker');
-            if (marker && canvas) {
-                const x = parseFloat(marker.style.left) || 0;
-                const y = parseFloat(marker.style.top) || 0;
-                const s_hsv = x / canvas.width;
-                const v_hsv = 1 - (y / canvas.height);
-
-                const hsl = hsvToHsl(hue, s_hsv, v_hsv);
-                const hex = hslToHex(hsl.h, hsl.s, hsl.l);
-                applyHexToBaseInputs(hex);
-                generatePalette();
-            }
-        };
-        hueSlider.addEventListener('input', onHueChange);
-        hueSlider.addEventListener('change', onHueChange);
-    }
-
-    if ('EyeDropper' in window && btnDropper) {
-        btnDropper.style.display = 'flex';
-        btnDropper.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const eyeDropper = new EyeDropper();
-            eyeDropper.open().then(result => {
-                syncPickerWithHex(result.sRGBHex.toUpperCase());
-            }).catch(() => {
-                // 사용자가 스포이드를 취소한 경우 조용히 무시
-            });
-        });
-    }
-
-    if (btnNative) {
-        btnNative.addEventListener('click', (e) => {
-            e.stopPropagation();
-            customPicker.style.display = 'none';
-            hiddenPicker.click();
-        });
-    }
-
-    const onNativePickerChange = (e) => {
-        syncPickerWithHex(e.target.value.toUpperCase());
-    };
-    hiddenPicker.addEventListener('input', onNativePickerChange);
-    hiddenPicker.addEventListener('change', onNativePickerChange);
-
-    if (btnClose) {
-        btnClose.addEventListener('click', (e) => {
-            e.stopPropagation();
-            customPicker.style.display = 'none';
-        });
-    }
-
-    baseColorInput.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (customPicker.style.display === 'none') {
-            syncPickerWithHex(baseColorInput.value, false);
-            customPicker.style.display = 'block';
-        } else {
-            customPicker.style.display = 'none';
-        }
-    });
-
-    customPicker.addEventListener('click', (e) => {
-        e.stopPropagation();
-    });
-
-    document.addEventListener('click', (e) => {
-        if (customPicker.style.display === 'block' && e.target !== baseColorInput && !customPicker.contains(e.target)) {
-            customPicker.style.display = 'none';
-        }
-    });
-}
-
-/**
- * HEX 값에 기초해 커스텀 2D 피커 UI를 동기화합니다.
- * @param {string} hex - '#RRGGBB' 형식 문자열
- * @param {boolean} [triggerGenerate=true] - 팔레트 재생성 여부
- */
-function syncPickerWithHex(hex, triggerGenerate = true) {
-    const hueSlider = document.getElementById('pickerHue');
-    applyHexToBaseInputs(hex);
-
-    const hsl = hexToHsl(hex);
-    const hsv = hslToHsv(hsl.h, hsl.s, hsl.l);
-
-    if (hueSlider) {
-        hueSlider.value = hsv.h;
-    }
-    drawPickerCanvas(hsv.h);
-    updatePickerMarker(hsv.s, hsv.v);
-
-    if (triggerGenerate) {
-        generatePalette();
-    }
-}
-
-/**
- * 명암 범위 커스텀 더블 슬라이더를 초기화합니다.
- */
-function initDoubleSlider() {
-    const minInput = document.getElementById('lightMin');
-    const maxInput = document.getElementById('lightMax');
-    const sliderRange = document.getElementById('sliderRange');
-    const textSpan = document.getElementById('lightRangeVal');
-    if (!minInput || !maxInput || !sliderRange) return;
-
-    function updateSlider() {
-        let minVal = parseInt(minInput.value, 10);
-        let maxVal = parseInt(maxInput.value, 10);
-
-        if (minVal > maxVal) {
-            const temp = minVal;
-            minVal = maxVal;
-            maxVal = temp;
-            minInput.value = minVal;
-            maxInput.value = maxVal;
-        }
-
-        sliderRange.style.left = `${minVal}%`;
-        sliderRange.style.width = `${maxVal - minVal}%`;
-
-        if (textSpan) {
-            textSpan.innerText = `${minVal}% ~ ${maxVal}%`;
-        }
-
-        updateLightnessGuide(minVal, maxVal);
-    }
-
-    minInput.addEventListener('input', () => {
-        const minVal = parseInt(minInput.value, 10);
-        const maxVal = parseInt(maxInput.value, 10);
-        if (minVal > maxVal) {
-            minInput.value = maxVal;
-        }
-        updateSlider();
-        generatePalette();
-    });
-
-    maxInput.addEventListener('input', () => {
-        const minVal = parseInt(minInput.value, 10);
-        const maxVal = parseInt(maxInput.value, 10);
-        if (maxVal < minVal) {
-            maxInput.value = minVal;
-        }
-        updateSlider();
-        generatePalette();
-    });
-
-    updateSlider();
-}
-
-/**
- * 2차원 H-L 컬러 맵 상의 기준 색상 마커 드래그 앤 드롭을 처리합니다.
- */
-function initDragAndDrop() {
-    const wrapper = document.getElementById('colormapWrapper');
-    const markerContainer = document.getElementById('colormapMarkers');
-    if (!wrapper || !markerContainer) return;
-
-    markerContainer.addEventListener('mousedown', (e) => {
-        const marker = e.target.closest('.base-marker');
-        if (!marker) return;
-
-        isDragging = true;
-        e.preventDefault();
-
-        function onMouseMove(moveEvent) {
-            if (!isDragging) return;
-            const rect = wrapper.getBoundingClientRect();
-
-            const x = Math.max(0, Math.min(1, (moveEvent.clientX - rect.left) / rect.width));
-            const y = Math.max(0, Math.min(1, (moveEvent.clientY - rect.top) / rect.height));
-
-            const h = Math.round(x * 360) % 360;
-            const l = Math.round((1 - y) * 100);
-
-            const baseColorEl = document.getElementById('baseColor');
-            const currentHsl = hexToHsl(baseColorEl.value);
-            const s = currentHsl.s < 5 ? 80 : currentHsl.s;
-
-            const newHex = hslToHex(h, s, l);
-            applyHexToBaseInputs(newHex);
-
-            const customPicker = document.getElementById('customColorPicker');
-            if (customPicker && customPicker.style.display === 'block') {
-                const hueSlider = document.getElementById('pickerHue');
-                if (hueSlider) hueSlider.value = h;
-
-                const hsv = hslToHsv(h, s, l);
-                drawPickerCanvas(h);
-                updatePickerMarker(hsv.s, hsv.v);
-            }
-
-            generatePaletteFromDrag(h, s, l, newHex);
-        }
-
-        function onMouseUp() {
-            isDragging = false;
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
-            generatePalette();
-        }
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-    });
-}
-
-function generatePaletteFromDrag(baseH, baseS, baseL, newHex) {
-    const count = parseInt(document.getElementById('extractCount').value, 10);
-    const lightSteps = parseInt(document.getElementById('lightSteps').value, 10) || 1;
-    const method = document.getElementById('extractMethod').value;
-    const minL = parseInt(document.getElementById('lightMin').value, 10);
-    const maxL = parseInt(document.getElementById('lightMax').value, 10);
-
-    const colors = extractColors(baseH, baseS, baseL, newHex, count, method, minL, maxL, lightSteps);
-    currentExtractedColors = colors;
-
-    renderPalette(colors);
-    updateMarkerPositions({ h: baseH, s: baseS, l: baseL }, newHex, colors);
-    renderContrastStrip(colors);
-    updateLightnessGuide(minL, maxL);
-    const satLabel = document.getElementById('colormapSatLabel');
-    if (satLabel) {
-        satLabel.innerText = `채도: ${baseS}%`;
-    }
-}
-
-/**
- * 클립보드 복사 공통 유틸리티 (비보안 file:// 컨텍스트 대응 폴백 포함)
- * @param {string} text - 복사할 문자열
- * @param {string} successMessage - 복사 성공 시 표시할 토스트 메시지
- */
 function copyTextWithFallback(text, successMessage) {
     const fallbackCopy = () => {
         try {
@@ -545,389 +440,30 @@ function copyTextWithFallback(text, successMessage) {
             textarea.style.position = 'fixed';
             textarea.style.opacity = '0';
             document.body.appendChild(textarea);
-            textarea.focus();
             textarea.select();
             const ok = document.execCommand('copy');
-            document.body.removeChild(textarea);
-            showToast(ok ? successMessage : '복사에 실패했습니다.');
+            textarea.remove();
+            showToast(ok ? successMessage : I18n.t('copyFailed'));
         } catch (err) {
-            console.error('클립보드 폴백 복사 실패:', err);
-            showToast('복사에 실패했습니다.');
+            console.error('Clipboard fallback failed:', err);
+            showToast(I18n.t('copyFailed'));
         }
     };
-
     if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        navigator.clipboard.writeText(text)
-            .then(() => showToast(successMessage))
-            .catch(() => fallbackCopy());
+        navigator.clipboard.writeText(text).then(() => showToast(successMessage)).catch(fallbackCopy);
     } else {
         fallbackCopy();
     }
 }
 
-function initExportButton() {
-    const exportBtn = document.getElementById('btnExportCode');
-    if (!exportBtn) return;
-
-    exportBtn.addEventListener('click', () => {
-        if (currentExtractedColors.length === 0) return;
-
-        const hexList = currentExtractedColors.map(c => `"${c.hex}"`).join(', ');
-        const codeString = `const colorPalette = [\n  ${hexList}\n];`;
-        copyTextWithFallback(codeString, '클립보드에 복사되었습니다.');
-    });
-}
-
 function showToast(message) {
     const toast = document.getElementById('toastMessage');
     if (!toast) return;
-
-    if (toastTimeoutId) {
-        clearTimeout(toastTimeoutId);
-    }
-
-    toast.innerText = message;
+    if (toastTimeoutId) clearTimeout(toastTimeoutId);
+    toast.textContent = message;
     toast.classList.add('show');
-
     toastTimeoutId = setTimeout(() => {
         toast.classList.remove('show');
         toastTimeoutId = null;
-    }, 1000);
-}
-
-function updateBaseColorInputStyle(hex) {
-    const input = document.getElementById('baseColor');
-    if (!input) return;
-
-    let cleanHex = String(hex).trim();
-    if (cleanHex && !cleanHex.startsWith('#')) {
-        cleanHex = '#' + cleanHex;
-    }
-
-    if (/^#([0-9A-F]{3}){1,2}$/i.test(cleanHex)) {
-        input.style.backgroundColor = cleanHex;
-        const luminance = getRelativeLuminance(cleanHex);
-        input.style.color = luminance > 0.179 ? '#000000' : '#FFFFFF';
-        input.classList.remove('invalid-input');
-    } else {
-        input.style.backgroundColor = '';
-        input.style.color = '';
-        input.classList.add('invalid-input');
-    }
-}
-
-/**
- * 추출 방법에 따라 추출 개수 및 명암 단계 입력창의 활성화/제약 상태를 갱신합니다.
- */
-function updateInputsState(method) {
-    const countInput = document.getElementById('extractCount');
-    const stepsInput = document.getElementById('lightSteps');
-    if (!countInput || !stepsInput) return;
-
-    const preset = PRESET_CONFIG[method];
-
-    if (preset && preset.fixedCount) {
-        countInput.value = preset.count;
-        countInput.disabled = true;
-    } else {
-        countInput.disabled = false;
-    }
-
-    if (preset && preset.fixedSteps) {
-        stepsInput.value = preset.defaultSteps;
-        stepsInput.disabled = true;
-    } else {
-        stepsInput.disabled = false;
-        if (preset && preset.maxSteps) {
-            stepsInput.max = preset.maxSteps;
-            const val = parseInt(stepsInput.value, 10) || preset.defaultSteps;
-            stepsInput.value = Math.max(1, Math.min(preset.maxSteps, val));
-        } else {
-            stepsInput.max = 10;
-        }
-    }
-}
-
-/**
- * 추출 방법 변경 시 사용자의 명암 단계 설정을 보존하면서 프리셋 전환을 처리합니다.
- */
-function handleMethodChange(method) {
-    const stepsInput = document.getElementById('lightSteps');
-    if (!stepsInput) return;
-
-    // 직전 모드가 일반 알고리즘이었으면 사용자가 설정한 명암 단계를 백업
-    if (!PRESET_CONFIG[previousMethod]) {
-        lastUserLightSteps = Math.max(1, parseInt(stepsInput.value, 10) || 1);
-    }
-
-    const preset = PRESET_CONFIG[method];
-    if (preset) {
-        stepsInput.value = preset.defaultSteps;
-    } else if (PRESET_CONFIG[previousMethod]) {
-        // 고정 프리셋에서 일반 알고리즘으로 복귀할 때만 이전 사용자 명암 단계를 복원
-        stepsInput.value = lastUserLightSteps;
-    }
-
-    previousMethod = method;
-}
-
-/**
- * 메인 색상 추출 및 UI 전체 갱신 컨트롤러
- */
-function generatePalette() {
-    const baseColorEl = document.getElementById('baseColor');
-    const methodEl = document.getElementById('extractMethod');
-    if (!baseColorEl || !methodEl) return;
-
-    const baseColorInput = baseColorEl.value.trim();
-    const method = methodEl.value;
-
-    updateInputsState(method);
-
-    const count = parseInt(document.getElementById('extractCount').value, 10) || 8;
-    const lightSteps = parseInt(document.getElementById('lightSteps').value, 10) || 1;
-    const minL = parseInt(document.getElementById('lightMin').value, 10);
-    const maxL = parseInt(document.getElementById('lightMax').value, 10);
-
-    let cleanHex = baseColorInput;
-    if (cleanHex && !cleanHex.startsWith('#')) {
-        cleanHex = '#' + cleanHex;
-    }
-    if (!/^#([0-9A-F]{3}){1,2}$/i.test(cleanHex)) {
-        return;
-    }
-    cleanHex = cleanHex.toUpperCase();
-
-    const baseHsl = hexToHsl(cleanHex);
-    const colors = extractColors(baseHsl.h, baseHsl.s, baseHsl.l, cleanHex, count, method, minL, maxL, lightSteps);
-    currentExtractedColors = colors;
-
-    renderPalette(colors);
-    drawColorMap(baseHsl.s);
-    renderMarkers(baseHsl, cleanHex, colors);
-    renderContrastStrip(colors);
-    updateLightnessGuide(minL, maxL);
-}
-
-/**
- * 2차원 H-L 컬러 맵 배경을 렌더링합니다 (정적 배경은 최초 1회만 픽셀 연산 수행).
- */
-function drawColorMap(s) {
-    const satLabel = document.getElementById('colormapSatLabel');
-    if (satLabel) {
-        satLabel.innerText = `채도: ${s}%`;
-    }
-
-    if (isColorMapRendered) return;
-
-    const canvas = document.getElementById('colorMapCanvas');
-    if (!canvas) return;
-
-    const width = 180;
-    const height = 75;
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext('2d');
-    const drawS = 100;
-    const imgData = ctx.createImageData(width, height);
-
-    for (let y = 0; y < height; y++) {
-        const l = 100 - (y / height) * 100;
-        for (let x = 0; x < width; x++) {
-            const h = (x / width) * 360;
-            const hex = hslToHex(h, drawS, l);
-
-            const r = parseInt(hex.substring(1, 3), 16);
-            const g = parseInt(hex.substring(3, 5), 16);
-            const b = parseInt(hex.substring(5, 7), 16);
-
-            const idx = (y * width + x) * 4;
-            imgData.data[idx] = r;
-            imgData.data[idx + 1] = g;
-            imgData.data[idx + 2] = b;
-            imgData.data[idx + 3] = 255;
-        }
-    }
-    ctx.putImageData(imgData, 0, 0);
-    isColorMapRendered = true;
-}
-
-function renderMarkers(baseHsl, baseHex, colors) {
-    const markerContainer = document.getElementById('colormapMarkers');
-    if (!markerContainer) return;
-    markerContainer.innerHTML = '';
-
-    const baseMarker = document.createElement('div');
-    baseMarker.className = 'map-marker base-marker';
-    baseMarker.style.left = `${(baseHsl.h / 360) * 100}%`;
-    baseMarker.style.top = `${100 - baseHsl.l}%`;
-    baseMarker.style.backgroundColor = baseHex;
-    baseMarker.setAttribute('data-tooltip', `기준: ${baseHex} (H:${baseHsl.h}°, S:${baseHsl.s}%, L:${baseHsl.l}%)`);
-    markerContainer.appendChild(baseMarker);
-
-    colors.forEach((color, index) => {
-        const marker = document.createElement('div');
-        marker.className = 'map-marker extracted-marker';
-        marker.style.left = `${(color.h / 360) * 100}%`;
-        marker.style.top = `${100 - color.l}%`;
-        marker.style.backgroundColor = color.hex;
-        marker.setAttribute('data-tooltip', `#${index + 1}: ${color.hex} (H:${color.h}°, S:${color.s}%, L:${color.l}%)`);
-        marker.setAttribute('data-index', index);
-
-        marker.addEventListener('mouseenter', () => highlightCard(index, true));
-        marker.addEventListener('mouseleave', () => highlightCard(index, false));
-
-        markerContainer.appendChild(marker);
-    });
-}
-
-function updateMarkerPositions(baseHsl, baseHex, colors) {
-    const markerContainer = document.getElementById('colormapMarkers');
-    if (!markerContainer) return;
-
-    const baseMarker = markerContainer.querySelector('.base-marker');
-    if (baseMarker) {
-        baseMarker.style.left = `${(baseHsl.h / 360) * 100}%`;
-        baseMarker.style.top = `${100 - baseHsl.l}%`;
-        baseMarker.style.backgroundColor = baseHex;
-        baseMarker.setAttribute('data-tooltip', `기준: ${baseHex} (H:${baseHsl.h}°, S:${baseHsl.s}%, L:${baseHsl.l}%)`);
-    }
-
-    const extractedMarkers = markerContainer.querySelectorAll('.extracted-marker');
-    if (extractedMarkers.length === colors.length) {
-        extractedMarkers.forEach((marker, index) => {
-            const color = colors[index];
-            marker.style.left = `${(color.h / 360) * 100}%`;
-            marker.style.top = `${100 - color.l}%`;
-            marker.style.backgroundColor = color.hex;
-            marker.setAttribute('data-tooltip', `#${index + 1}: ${color.hex} (H:${color.h}°, S:${color.s}%, L:${color.l}%)`);
-        });
-    } else {
-        renderMarkers(baseHsl, baseHex, colors);
-    }
-}
-
-function renderContrastStrip(colors) {
-    const stripContainer = document.getElementById('contrastStrip');
-    if (!stripContainer) return;
-    stripContainer.innerHTML = '';
-
-    const method = document.getElementById('extractMethod').value;
-    const preset = PRESET_CONFIG[method];
-    const count = preset ? preset.count : (parseInt(document.getElementById('extractCount').value, 10) || 8);
-    const lightSteps = (preset && preset.fixedSteps)
-        ? preset.defaultSteps
-        : (parseInt(document.getElementById('lightSteps').value, 10) || (preset ? preset.defaultSteps : 1));
-
-    stripContainer.style.display = 'grid';
-    stripContainer.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
-    stripContainer.style.height = `${lightSteps * 35}px`;
-
-    colors.forEach((color, index) => {
-        const chip = document.createElement('div');
-        chip.className = 'contrast-chip';
-        chip.style.backgroundColor = color.hex;
-        chip.style.height = '100%';
-
-        chip.innerHTML = `
-            <span class="contrast-chip-text text-dark">Aa</span>
-            <span class="contrast-chip-text text-light">Aa</span>
-        `;
-
-        chip.addEventListener('mouseenter', () => {
-            highlightCard(index, true);
-            const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
-            if (marker) marker.classList.add('active');
-        });
-        chip.addEventListener('mouseleave', () => {
-            highlightCard(index, false);
-            const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
-            if (marker) marker.classList.remove('active');
-        });
-        chip.addEventListener('click', () => {
-            copyToClipboard(color.hex);
-        });
-
-        stripContainer.appendChild(chip);
-    });
-}
-
-function updateLightnessGuide(minL, maxL) {
-    let guide = document.getElementById('colormapLightGuide');
-    const wrapper = document.getElementById('colormapWrapper');
-    if (!wrapper) return;
-
-    if (!guide) {
-        guide = document.createElement('div');
-        guide.id = 'colormapLightGuide';
-        guide.className = 'colormap-light-guide';
-        wrapper.appendChild(guide);
-    }
-
-    guide.style.top = `${100 - maxL}%`;
-    guide.style.height = `${maxL - minL}%`;
-}
-
-function highlightCard(index, isActive) {
-    const cards = document.querySelectorAll('.color-card');
-    if (cards[index]) {
-        if (isActive) {
-            cards[index].style.transform = 'scale(1.02)';
-            cards[index].style.borderColor = '#007bff';
-            cards[index].style.boxShadow = '0 4px 12px rgba(0,123,255,0.15)';
-            cards[index].style.transition = 'all 0.2s ease';
-        } else {
-            cards[index].style.transform = '';
-            cards[index].style.borderColor = '';
-            cards[index].style.boxShadow = '';
-        }
-    }
-}
-
-function renderPalette(colors) {
-    const container = document.getElementById('paletteResult');
-    if (!container) return;
-    container.innerHTML = '';
-
-    colors.forEach((color, index) => {
-        const luminance = getRelativeLuminance(color.hex).toFixed(3);
-
-        const card = document.createElement('div');
-        card.className = 'color-card';
-        card.setAttribute('data-index', index);
-        card.innerHTML = `
-            <div class="color-swatch" style="background-color: ${color.hex};"></div>
-            <div class="color-info">
-                <div><strong>HEX:</strong> ${color.hex}</div>
-                <div><strong>HSL:</strong> ${color.h}°, ${color.s}%, ${color.l}%</div>
-                <div><strong>Luminance:</strong> ${luminance}</div>
-            </div>
-            <button type="button" class="copy-btn">Copy</button>
-        `;
-
-        const copyBtn = card.querySelector('.copy-btn');
-        if (copyBtn) {
-            copyBtn.addEventListener('click', () => copyToClipboard(color.hex));
-        }
-
-        card.addEventListener('mouseenter', () => {
-            const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
-            if (marker) marker.classList.add('active');
-            const chip = document.getElementById('contrastStrip')?.children[index];
-            if (chip) chip.classList.add('active');
-        });
-        card.addEventListener('mouseleave', () => {
-            const marker = document.querySelector(`.map-marker[data-index="${index}"]`);
-            if (marker) marker.classList.remove('active');
-            const chip = document.getElementById('contrastStrip')?.children[index];
-            if (chip) chip.classList.remove('active');
-        });
-
-        container.appendChild(card);
-    });
-}
-
-function copyToClipboard(text) {
-    copyTextWithFallback(text, `${text} 코드가 복사되었습니다.`);
+    }, 1200);
 }

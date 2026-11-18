@@ -4,324 +4,149 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="build" content="20261118v2">
+  <meta name="theme-color" content="#E44D1B">
   <title>UniPalette - 인지 균일 색상 추출기</title>
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
   <link rel="icon" type="image/png" href="icon.png">
-  <link rel="stylesheet" href="style.css?v=20261109v1">
+  <link rel="apple-touch-icon" href="icon-512.png">
+  <link rel="stylesheet" href="unipalette.css?v=20261118v2">
+  <link rel="stylesheet" href="style.css?v=20261118v2">
 </head>
 
 <body>
 
-  <header style="display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 800px; margin-bottom: 20px;">
-    <div>
-      <h1 style="margin: 0 0 5px 0; font-size: 24px; display: flex; align-items: center; gap: 8px;"><img src="icon.svg" alt="UniPalette Icon" style="width: 28px; height: 28px; vertical-align: middle;">UniPalette <span id="appVersion" style="font-size: 13px; font-weight: normal; color: var(--muted-text); margin-left: 5px;">v1.0.0 (20261109v1)</span></h1>
-    </div>
+  <header class="app-header">
+    <h1><img src="icon.svg" alt="" class="app-logo">UniPalette <span id="appVersion" class="app-version"></span></h1>
     <div class="header-buttons">
-      <button id="btnShortcut" class="header-btn">단축키</button>
-      <button id="btnHelp" class="header-btn">설명서</button>
+      <select id="langSelect" class="header-select" data-i18n-attr="aria-label:language;title:language"></select>
+      <button id="btnShortcut" class="header-btn" data-i18n="shortcut">단축키</button>
+      <button id="btnHelp" class="header-btn" data-i18n="help">설명서</button>
       <button id="btnToggleDark" class="header-btn">다크모드</button>
     </div>
   </header>
 
-  <div class="container">
-    <div class="control-panel">
-      <div class="control-group" style="position: relative;">
-        <label for="baseColor">기준 색상 (Hex)</label>
-        <input type="text" id="baseColor" value="#E44D1B" placeholder="#ffffff" readonly style="cursor: pointer;">
-        <input type="color" id="hiddenColorPicker" value="#E44D1B" style="display: none;">
-        
-        <!-- 커스텀 2D HSV 컬러 피커 레이아웃 (4차 수정) -->
-        <div id="customColorPicker" class="custom-color-picker" style="display: none;">
-          
-          <!-- 2D 채도-명도 영역 -->
-          <div class="picker-canvas-container">
-            <canvas id="pickerCanvas" width="210" height="130"></canvas>
-            <div id="pickerMarker" class="picker-marker"></div>
-          </div>
-          
-          <!-- HUE 슬라이더 -->
-          <div class="picker-slider-container">
-            <input type="range" id="pickerHue" min="0" max="360" value="0">
-          </div>
-          
-          <!-- 하단 제어 툴바 -->
-          <div class="picker-bottom-bar">
-            <div class="picker-preview-group">
-              <div id="pickerPreview" class="picker-preview-chip"></div>
-              <span id="pickerHexText" class="picker-hex-text">#E44D1B</span>
-            </div>
-            <div class="picker-actions-group">
-              <!-- 스포이드 버튼 (EyeDropper) -->
-              <button id="btnDropper" class="picker-btn" title="스포이드 색상 추출" style="display: none;">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="m15 4 5 5"></path>
-                  <path d="M12.93 7.07a2 2 0 0 0-2.83 0l-6.24 6.24a2 2 0 0 0 0 2.83l.79.79a2 2 0 0 0 2.83 0l6.24-6.24a2 2 0 0 0 0-2.83Z"></path>
-                  <path d="m2 22 3-3"></path>
-                </svg>
-              </button>
-              <!-- OS 기본 컬러 피커 실행 버튼 -->
-              <button id="btnNativePicker" class="picker-btn" title="시스템 컬러 피커">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle>
-                  <circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle>
-                  <circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle>
-                  <circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle>
-                  <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10c1.378 0 2.5-1.122 2.5-2.5 0-.649-.247-1.24-.657-1.687-.41-.448-.657-1.047-.657-1.701 0-1.378 1.122-2.5 2.5-2.5H18c2.206 0 4-1.794 4-4 0-5.523-4.477-10-10-10z"></path>
-                </svg>
-              </button>
-              <!-- 닫기 버튼 (아이콘 형태, 배경 빨간색) -->
-              <button id="btnClosePicker" class="picker-btn" title="닫기" style="background-color: #e03131; color: white; border-color: #e03131;">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+  <main class="container" id="appMain">
+    <section class="demo-card">
+      <h2 class="demo-title" data-i18n="exampleTitle">모듈 예제</h2>
+      <p class="demo-desc" data-i18n="exampleDesc"></p>
 
-      <div class="control-group">
-        <label>추출 개수 및 명암 단계</label>
-        <div style="display: flex; gap: 10px;">
-          <input type="number" id="extractCount" value="8" min="2" max="36" style="flex: 1;" title="추출 개수(Hue 개수)">
-          <input type="number" id="lightSteps" value="1" min="1" max="10" style="flex: 1;" title="명암 차이 개수" placeholder="명암 단계">
-        </div>
-      </div>
+      <h3 class="demo-subtitle" data-i18n="inputArgs">Input arguments</h3>
+      <ul class="arg-list">
+        <li class="arg-row">
+          <code class="arg-name">base</code><span class="arg-type">string</span>
+          <span class="arg-desc" data-i18n="argBase"></span>
+          <span class="arg-input demo-color">
+            <input type="color" id="optBasePicker" value="#e44d1b" data-i18n-attr="aria-label:argBase">
+            <input type="text" id="optBase" maxlength="7" autocomplete="off" data-default="#E44D1B" data-i18n-attr="aria-label:argBase">
+          </span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">count</code><span class="arg-type">number</span>
+          <span class="arg-desc" data-i18n="argCount"></span>
+          <span class="arg-input"><input type="number" id="optCount" min="2" max="36" data-default="8" data-i18n-attr="aria-label:argCount"></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">steps</code><span class="arg-type">number</span>
+          <span class="arg-desc" data-i18n="argSteps"></span>
+          <span class="arg-input"><input type="number" id="optSteps" min="1" max="10" data-default="1" data-i18n-attr="aria-label:argSteps"></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">method</code><span class="arg-type">string</span>
+          <span class="arg-desc" data-i18n="argMethod"></span>
+          <span class="arg-input"><select id="optMethod" data-i18n-attr="aria-label:argMethod"></select></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">lightMin</code><span class="arg-type">number</span>
+          <span class="arg-desc" data-i18n="argLightMin"></span>
+          <span class="arg-input"><input type="number" id="optLightMin" min="0" max="100" data-default="20" data-i18n-attr="aria-label:argLightMin"></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">lightMax</code><span class="arg-type">number</span>
+          <span class="arg-desc" data-i18n="argLightMax"></span>
+          <span class="arg-input"><input type="number" id="optLightMax" min="0" max="100" data-default="80" data-i18n-attr="aria-label:argLightMax"></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">shape</code><span class="arg-type">string</span>
+          <span class="arg-desc" data-i18n="argShape"></span>
+          <span class="arg-input">
+            <select id="optShape" data-i18n-attr="aria-label:argShape">
+              <option value="auto" data-i18n="shapeAuto"></option>
+              <option value="grid" data-i18n="shapeGrid"></option>
+            </select>
+          </span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">theme</code><span class="arg-type">string</span>
+          <span class="arg-desc" data-i18n="argTheme"></span>
+          <span class="arg-input">
+            <select id="optTheme" data-i18n-attr="aria-label:argTheme">
+              <option value="" data-i18n="followPage"></option>
+              <option value="auto">auto</option>
+              <option value="light">light</option>
+              <option value="dark">dark</option>
+            </select>
+          </span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">lang</code><span class="arg-type">string</span>
+          <span class="arg-desc" data-i18n="argLang"></span>
+          <span class="arg-input"><select id="optLang" data-i18n-attr="aria-label:argLang"></select></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">title</code><span class="arg-type">string</span>
+          <span class="arg-desc" data-i18n="argTitle"></span>
+          <span class="arg-input"><input type="text" id="optTitle" maxlength="40" autocomplete="off" data-i18n-attr="aria-label:argTitle"></span>
+        </li>
+        <li class="arg-row">
+          <code class="arg-name">remember</code><span class="arg-type">boolean</span>
+          <span class="arg-desc" data-i18n="argRemember"></span>
+          <span class="arg-input arg-check"><input type="checkbox" id="optRemember" checked data-i18n-attr="aria-label:argRemember"> <code id="optRememberText">true</code></span>
+        </li>
+      </ul>
 
-      <div class="control-group" style="grid-column: span 2;">
-        <label for="extractMethod">추출 방법</label>
-        <select id="extractMethod">
-          <option value="linear" selected>[a] 선형 색상 추출</option>
-          <option value="hslAdapt">[b] 휘도 보정(HSL 적응형)</option>
-          <option value="macadam">[c] 색상 보정(MacAdam Ellipse)</option>
-          <option value="hslMacadam">[d] 휘도 색상 보정(HSL+MacAdam)</option>
-          <option value="oklab">[e] 인지적 등간격(Oklab)</option>
-          <option value="ciede">[f] CIEDE2000 고인지 색차 탐색</option>
-          <option value="ppt">[x] PowerPoint기본색(7x1)</option>
-          <option value="rainbow">[y] 무지개색(MS, 10x1)</option>
-          <option value="google">[z] 구글색(8x3)</option>
-        </select>
+      <pre class="demo-code" id="callCode"></pre>
+      <div class="demo-actions">
+        <button type="button" id="btnPick" class="primary-btn"><span data-i18n="pick">팔레트 고르기</span> <kbd>P</kbd></button>
       </div>
-    </div>
+    </section>
 
-    <!-- 명암 슬라이더 1행 정렬 -->
-    <div class="lightness-range-row" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
-      <div class="control-group" style="width: 100%;">
-        <label>명암 영역 범위 (Lightness) : <span id="lightRangeVal">20% ~ 80%</span></label>
-        <div class="multi-range-slider-container">
-          <div class="multi-range-slider">
-            <input type="range" id="lightMin" min="0" max="100" value="20">
-            <input type="range" id="lightMax" min="0" max="100" value="80">
-            <div class="slider-track"></div>
-            <div class="slider-range" id="sliderRange"></div>
-          </div>
-        </div>
+    <section class="demo-card">
+      <div class="demo-title-row">
+        <h2 class="demo-title" data-i18n="resultTitle">돌려받은 값</h2>
+        <button type="button" id="btnCopyResult" class="header-btn" data-i18n="copyAsCode" disabled>코드로 복사</button>
       </div>
-    </div>
+      <div id="resultChips" class="result-chips" aria-live="polite"></div>
+      <pre class="demo-code" id="resultCode"></pre>
+    </section>
 
-    <!-- H-L 컬러 맵 시각화 영역 -->
-    <div class="colormap-card">
-      <div class="colormap-title">
-        <span>색상 분포 맵 <span style="font-size: 12px; font-weight: normal; color: #6c757d;">(가로: Hue, 세로: Lightness)</span></span>
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <small id="colormapSatLabel" style="font-weight: normal; color: #6c757d;">채도: --%</small>
-          <button id="btnExportCode" class="export-btn">코드로 추출</button>
-        </div>
-      </div>
-      <div class="colormap-wrapper" id="colormapWrapper">
-        <canvas id="colorMapCanvas" width="360" height="150"></canvas>
-        <div id="colormapMarkers"></div>
-      </div>
-      <div class="colormap-axis-labels">
-        <span>Red (0°)</span>
-        <span>Green (120°)</span>
-        <span>Blue (240°)</span>
-        <span>Red (360°)</span>
-      </div>
-    </div>
+    <section class="demo-card">
+      <h2 class="demo-title" data-i18n="usageTitle">다른 앱에서 쓰기</h2>
+      <p class="demo-desc" data-i18n="usageDesc"></p>
+      <pre class="demo-code" id="usageCode"></pre>
+    </section>
+  </main>
 
-    <!-- 인접 색 대비 확인 스트립 영역 -->
-    <div class="contrast-card">
-      <div class="colormap-title">
-        <span>인접 색상 대비 스트립 <span style="font-size: 12px; font-weight: normal; color: #6c757d;">(인접한 색상 간의 명도/색상 대비 비교)</span></span>
-      </div>
-      <div class="contrast-strip-wrapper" id="contrastStrip"></div>
-    </div>
+  <div id="toastMessage" class="toast-message" role="status"></div>
 
-    <div class="palette-container" id="paletteResult"></div>
+  <div id="updateNotice" class="update-notice" hidden>
+    <span data-i18n="newVersion">새 버전이 있습니다</span>
+    <button type="button" id="btnUpdateReload" class="primary-btn" data-i18n="reload">새로 고침</button>
+    <button type="button" id="btnUpdateDismiss" class="header-btn" data-i18n="close">닫기</button>
   </div>
 
-  <div id="toastMessage" class="toast-message">클립보드에 복사되었습니다.</div>
-
-  <!-- 공용 모달 오버레이 구조 -->
+  <!-- 공용 모달: 설명서·단축키 창의 내용은 main.js가 언어에 맞게 만든다 -->
   <div id="commonModal" class="modal-overlay">
-    <div class="modal-content" id="modalContent"></div>
+    <div class="modal-content" id="modalContent" role="dialog" aria-modal="true"></div>
   </div>
 
-  <!-- 로컬 file:// 실행 환경을 위한 모달 폴백 템플릿 -->
-  <template id="tmpl-help">
-<div class="modal-header">
-  <h2>사용 설명서 및 알고리즘 정보</h2>
-  <button class="modal-close-btn" onclick="closeModal()">&times;</button>
-</div>
-<div class="modal-body" style="max-height: 450px; overflow-y: auto;">
-  <div class="help-section">
-    <h3>1. 통합 색상 추출 방법 안내</h3>
-    <div class="algorithm-card">
-      <div class="algo-title">선형 색상 추출</div>
-      <div class="algo-desc">
-        HSL 색상 원통 공간 상에서 360°를 등간격으로 선형 분할합니다.
-      </div>
-    </div>
-
-    <div class="algorithm-card">
-      <div class="algo-title">휘도 보정 (HSL 적응형)</div>
-      <div class="algo-desc">
-        HSL 공간 상에서 선형으로 색을 쪼개되, 각 색조별로 인간 눈이 감지하는 시각적 밝기를 고려하여 <strong>상대 휘도(Relative Luminance)</strong>를 계산하여
-        명도(Lightness)를 적응형으로 조정합니다.
-      </div>
-    </div>
-
-    <div class="algorithm-card">
-      <div class="algo-title">색상 보정 (MacAdam Ellipse)</div>
-      <div class="algo-desc">
-        인간 시각의 <strong>색 변별력 한계(MacAdam Ellipse)</strong> 특성을 모델링하여 비선형 분할합니다.
-        눈이 둔감하게 구별하는 녹색부근은 각도 간격을 크게 넓히고,
-        미세한 차이도 기민하게 감지하는 적색 및 청색 부근은 매우 조밀하게 쪼개어 진정한 인지적 등간격을 이끌어냅니다.
-      </div>
-    </div>
-
-    <div class="algorithm-card">
-      <div class="algo-title">휘도 색상 보정 (HSL+MacAdam)</div>
-      <div class="algo-desc">
-        앞선 두 개의 고수준 보정을 동시에 결합합니다.
-        <strong>MacAdam Ellipse</strong>에 근거해 Hue 각도를 시각적으로 최적화된 비선형 세그먼트로 분할한 후,
-        동시에 <strong>상대 휘도 보정</strong>을 가동해 명도를 세밀히 튜닝하여,
-        색상과 명도 모두에서 시각적으로 완전한 균일성을 획득하는 복합 알고리즘입니다.
-      </div>
-    </div>
-
-    <div class="algorithm-card">
-      <div class="algo-title">인지적 등간격 (Oklab)</div>
-      <div class="algo-desc">
-        HSL 공간의 비선형 오차를 탈피하고 <strong>Oklab 3D 벡터 인지 색 공간</strong>상에서 다이렉트로 회전 연산을 처리합니다.
-        기준 색상을 <code>sRGB &rarr; XYZ &rarr; LMS &rarr; Oklab</code>으로 무손실 변환한 뒤,
-        무채색축을 기점으로 N 등분각만큼 기하학적 회전을 가하고,
-        이를 다시 감마 역보정과 클리핑을 거쳐 sRGB/HEX 코드로 직접 역산합니다.
-        붉은색 영역 등의 인지 변별 가중치 보정이 물리/수학적으로 완벽히 자동 반영되는 하이엔드 방식입니다.
-      </div>
-    </div>
-
-    <div class="algorithm-card">
-      <div class="algo-title">CIEDE2000 고인지 색차 탐색</div>
-      <div class="algo-desc">
-        인간 시각의 색 정밀 인지 거리 연산 공식인 <strong>CIEDE2000</strong>을 기반으로 최적화 탐색을 수행합니다.
-        각 각도에 따라 기준 색상과 인지적으로 일치하는 색차 거리를 갖도록 명도를 계산하여 색조별 시각적 구별도를 극대화합니다.
-      </div>
-    </div>
-  </div>
-
-  <div class="help-section" style="margin-top: 20px;">
-    <h3>2. 고정 색상 프리셋 정보</h3>
-    <ul>
-      <li><strong>PowerPoint 기본색</strong>: 파워포인트 기본 디자인 도구에서 자주 쓰이는 대표 색상 7가지입니다. (7x1)</li>
-      <li><strong>무지개색 (MS Office)</strong>: 마이크로소프트 오피스의 스탠다드 무지개 10선 색상표입니다. (10x1)</li>
-      <li><strong>구글 캘린더/행아웃색</strong>: 구글 서비스에서 사용되는 밝고 가시성 높은 24종의 캘린더 팔레트입니다. (8x3)</li>
-    </ul>
-  </div>
-  </template>
-  <template id="tmpl-shortcut">
-<div class="modal-header">
-  <h2>단축키 설정</h2>
-  <button class="modal-close-btn" onclick="closeModal()">&times;</button>
-</div>
-<div class="modal-body">
-  <p class="modal-desc">아래의 버튼을 클릭한 후, 원하는 키보드 키를 입력하여 단축키를 변경하세요. (텍스트 입력 폼 포커스 중에는 단축키가 작동하지 않습니다.)</p>
-  
-  <table class="shortcut-table">
-    <thead>
-      <tr>
-        <th>동작</th>
-        <th>기본 단축키 (Primary)</th>
-        <th>대체 단축키 (Secondary)</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td class="action-label">추출 개수 증가</td>
-        <td>
-          <button class="key-slot-btn" id="key-increaseCount-primary" data-action="increaseCount" data-slot="primary">
-            +
-          </button>
-        </td>
-        <td>
-          <button class="key-slot-btn" id="key-increaseCount-secondary" data-action="increaseCount" data-slot="secondary">
-            ArrowUp
-          </button>
-        </td>
-      </tr>
-      <tr>
-        <td class="action-label">추출 개수 감소</td>
-        <td>
-          <button class="key-slot-btn" id="key-decreaseCount-primary" data-action="decreaseCount" data-slot="primary">
-            -
-          </button>
-        </td>
-        <td>
-          <button class="key-slot-btn" id="key-decreaseCount-secondary" data-action="decreaseCount" data-slot="secondary">
-            ArrowDown
-          </button>
-        </td>
-      </tr>
-      <tr>
-        <td class="action-label">명암 단계 증가</td>
-        <td>
-          <button class="key-slot-btn" id="key-increaseLightSteps-primary" data-action="increaseLightSteps" data-slot="primary">
-            *
-          </button>
-        </td>
-        <td>
-          <button class="key-slot-btn" id="key-increaseLightSteps-secondary" data-action="increaseLightSteps" data-slot="secondary">
-            PageUp
-          </button>
-        </td>
-      </tr>
-      <tr>
-        <td class="action-label">명암 단계 감소</td>
-        <td>
-          <button class="key-slot-btn" id="key-decreaseLightSteps-primary" data-action="decreaseLightSteps" data-slot="primary">
-            /
-          </button>
-        </td>
-        <td>
-          <button class="key-slot-btn" id="key-decreaseLightSteps-secondary" data-action="decreaseLightSteps" data-slot="secondary">
-            PageDown
-          </button>
-        </td>
-      </tr>
-    </tbody>
-  </table>
-
-  <div class="shortcut-info-box" style="margin-top: 15px; padding: 10px; background-color: rgba(0,75,255,0.03); border: 1px solid rgba(0,75,255,0.1); border-radius: 6px; font-size: 11px;">
-    <strong style="color: #0056b3;">💡 고정 단축키 안내</strong>
-    <p style="margin: 4px 0 0 0; color: #6c757d; line-height: 1.4;">
-      - <strong>[a], [b], [c], [d], [e], [f]</strong>: 색상 추출 방법 스위칭<br>
-      - <strong>[x], [y], [z]</strong>: 각각 PPT 기본색 / 무지개색 / 구글색 고정 프리셋 스위칭 (고정 단축키는 변경 불가)
-    </p>
-  </div>
-  
-  <div class="modal-footer" style="margin-top: 15px;">
-    <button class="modal-action-btn save" id="btnSaveShortcuts">저장</button>
-    <button class="modal-action-btn reset" id="btnResetShortcuts">초기화</button>
-  </div>
-</div>
-  </template>
-
-  <script src="version.js?v=20261109v1"></script>
-  <script src="calcColor.js?v=20261109v1"></script>
-  <script src="main.js?v=20261109v1"></script>
-  <script src="shortcut.js?v=20261109v1"></script>
+  <script src="version.js?v=20261118v2"></script>
+  <script src="calcColor.js?v=20261118v2"></script>
+  <script src="unipalette.js?v=20261118v2"></script>
+  <script src="i18n.js?v=20261118v2"></script>
+  <script src="shortcut.js?v=20261118v2"></script>
+  <script src="main.js?v=20261118v2"></script>
 </body>
 
 </html>

@@ -5,5 +5,5 @@
  */
 
 const SEMVER = '1.0.0';
-const CACHE_BUST_TAG = '20261109v1';
+const CACHE_BUST_TAG = '20261118v2';
 const DISPLAY_VERSION = `v${SEMVER} (${CACHE_BUST_TAG})`;

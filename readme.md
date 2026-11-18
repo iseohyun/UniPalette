@@ -27,6 +27,29 @@ UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레�
    - **원클릭 클립보드 복사**: 단일 색상 HEX 복사 또는 전체 팔레트를 배열 형태로 코드로 추출.
    - **편리한 단축키 매핑**: 추출 개수 증감, 명암 단계 조절 및 추출 알고리즘 스위칭에 유연한 단축키 설정 바인딩 제공.
 
+## 모듈로 쓰기 (UniPalette.pick)
+
+다른 앱에서 테마 색 등을 뽑을 때 대화상자를 띄우고, 고른 색 배열을 돌려받습니다. 지금의 단독 화면은 이 모듈을 부르는 견본입니다.
+
+```html
+<link rel="stylesheet" href="https://iseohyun.github.io/UniPalette/unipalette.css">
+<script src="https://iseohyun.github.io/UniPalette/version.js"></script>
+<script src="https://iseohyun.github.io/UniPalette/calcColor.js"></script>
+<script src="https://iseohyun.github.io/UniPalette/unipalette.js"></script>
+<script>
+  const colors = await UniPalette.pick({ base: "#3B82F6", count: 8, steps: 3, method: "oklab" });
+  // steps 1  → ["#3B82F6", ...]
+  // steps 2+ → [["#..", "#..", "#.."], ...]  (colors[색상][단계], 단계는 어두운 쪽부터)
+  // 취소     → null
+</script>
+```
+
+- 파일 네 개(`version.js`, `calcColor.js`, `unipalette.js`, `unipalette.css`)를 복사해 넣어도 됩니다.
+- 옵션: `base`, `count`(2~36), `steps`(1~10), `method`, `lightMin`, `lightMax`, `shape`(`auto` | `grid`), `theme`(`auto` | `light` | `dark`), `lang`(`auto` | `ko` | `en` | `ja` | `zh`, auto는 브라우저 언어), `title`, `remember`(기본 켬), `storageKey`.
+- 넘긴 옵션이 앞서고, 넘기지 않은 항목은 마지막에 고른 값(`unipalette_settings_v1`) → 기본값 순으로 채웁니다.
+- 화면 없이 계산만: `UniPalette.extract(options)` (같은 모양의 배열).
+- 대화상자 안의 단축키는 단독 화면과 같습니다(개수 `+`/`-`, 명암 단계 `*`/`/`, 방법 `a`~`f`, 프리셋 `x`~`z`, Esc 취소, Enter 선택).
+
 ## 기본 설정 정보
 
 - **추출 개수 및 명암 단계**: `8 x 1`
@@ -39,12 +62,12 @@ UniPalette는 디자이너와 개발자를 위한 **인지 균일 색상 팔레�
 
 ## 파일 구조
 
-- `index.html`: 메인 웹 UI 마크업 및 모달 폴백 템플릿.
-- `style.css`: 메인 레이아웃, 다크모드 테마, 컬러 피커/맵 및 모달 통합 스타일시트.
+- `unipalette.js`: 모듈. 대화상자(`UniPalette.pick`)와 계산만 하는 `UniPalette.extract`.
+- `unipalette.css`: 모듈 스타일(`.up-` 접두어, 라이트/다크 토큰).
+- `calcColor.js`: sRGB-Oklab 변환, CIEDE2000 연산 및 색상 추출 알고리즘 라이브러리(DOM 없음).
 - `version.js`: 시맨틱 버전(`SEMVER`) 및 캐시 버스팅 태그(`CACHE_BUST_TAG`) 이원화 관리 모듈.
-- `main.js`: 상태 제어, 이벤트 바인딩 및 뷰 렌더링.
-- `calcColor.js`: sRGB-Oklab 변환, CIEDE2000 연산 및 색상 추출 알고리즘 라이브러리.
-- `shortcut.js`: 단축키 설정 관리 및 키 바인딩 이벤트 엔진.
-- `help.html`: 사용자용 알고리즘 및 프리셋 상세 설명 모달 파일.
-- `shortcut.html`: 단축키 조회 및 매핑 변경 설정 모달 파일.
-- `icon.svg` / `icon.png`: UniPalette 브랜드 로고 및 파비콘 아이콘.
+- `index.html` / `main.js` / `style.css`: 모듈 예제 화면(Input arguments 목록 → 대화상자 → 돌려받은 배열), 설명서·단축키 창, 새 판 알림, 다크모드·언어 기억.
+- `i18n.js`: 예제 화면·설명서·단축키 창의 다국어 사전(한국어·English·日本語·中文). 대화상자의 글자는 `unipalette.js` 안에 있습니다.
+- `shortcut.js`: 단축키 바꾸기 동작(저장 키 `unipalette_shortcuts`, 대화상자가 읽어 씀).
+- `manifest.webmanifest`, `icon-192.png`, `icon-512.png`, `icon-maskable-512.png`: 홈 화면 설치.
+- `icon.svg` / `icon.png`: 브랜드 로고 및 파비콘(설치 아이콘의 원본은 `icon.svg`).
