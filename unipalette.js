@@ -365,7 +365,7 @@
         dialog.innerHTML = `
 <form method="dialog" class="up-shell">
   <div class="up-head">
-    <h2 class="up-title"></h2>
+    <div class="up-title" role="heading" aria-level="2"></div>
     <button type="button" class="up-view-btn" data-up="view-toggle"></button>
     <button type="button" class="up-icon-btn" data-up="cancel" title="${t('cancelEsc')}" aria-label="${t('cancel')}">${ICONS.close}</button>
   </div>
